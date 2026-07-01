@@ -1,0 +1,95 @@
+"""Parquet round-trip + frame validation tests.
+
+These need the data stack (pandas/pyarrow) and are skipped when it is absent, so
+the stdlib contract tests still run on a bare interpreter. With the stack
+installed they exercise src/ingest/io.py and schema.validate_frame end-to-end:
+
+    .venv/bin/python -m unittest discover -s tests -v
+"""
+
+import datetime as dt
+import os
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+try:
+    import pandas as pd  # noqa: F401
+    import pyarrow  # noqa: F401
+    _HAVE_STACK = True
+except ImportError:
+    _HAVE_STACK = False
+
+from src.ingest import schema  # noqa: E402
+
+UTC = dt.timezone.utc
+
+
+def canonical_frame():
+    """A tiny 2-row (call/put) canonical frame with correct dtypes."""
+    import pandas as pd
+
+    rows = [
+        {
+            "symbol": "SPY", "quote_ts": pd.Timestamp("2024-06-03 20:00", tz="UTC"),
+            "expiration": pd.Timestamp("2024-06-21"), "strike": 530.0, "type": "call",
+            "underlying_price": 528.4, "bid": 3.1, "ask": 3.3, "last": 3.2,
+            "open_interest": 12000, "oi_asof_date": pd.Timestamp("2024-06-02"),
+            "volume": 4200, "iv": 0.14, "delta": 0.42, "gamma": 0.03, "theta": -0.05,
+            "vega": 0.11, "rho": 0.02, "_iv_source": "eodhd", "_greek_source": "eodhd",
+            "_adapter": "eodhd",
+        },
+        {
+            "symbol": "SPY", "quote_ts": pd.Timestamp("2024-06-03 20:00", tz="UTC"),
+            "expiration": pd.Timestamp("2024-06-21"), "strike": 525.0, "type": "put",
+            "underlying_price": 528.4, "bid": 2.0, "ask": 2.2, "last": 2.1,
+            "open_interest": 8000, "oi_asof_date": pd.Timestamp("2024-06-02"),
+            "volume": 1500, "iv": 0.15, "delta": -0.35, "gamma": 0.028, "theta": -0.04,
+            "vega": 0.10, "rho": -0.02, "_iv_source": "eodhd", "_greek_source": "eodhd",
+            "_adapter": "eodhd",
+        },
+    ]
+    df = pd.DataFrame(rows, columns=schema.field_names())
+    return df.astype(schema.pandas_dtypes())
+
+
+@unittest.skipUnless(_HAVE_STACK, "pandas/pyarrow not installed")
+class TestFrameValidation(unittest.TestCase):
+    def test_good_frame_passes(self):
+        self.assertEqual(schema.validate_frame(canonical_frame()), [])
+
+    def test_lookahead_frame_rejected(self):
+        df = canonical_frame()
+        df.loc[0, "oi_asof_date"] = pd.Timestamp("2024-06-04")  # after quote date
+        with self.assertRaises(schema.SchemaError):
+            schema.validate_frame(df)
+
+    def test_missing_required_column_rejected(self):
+        df = canonical_frame().drop(columns=["underlying_price"])
+        with self.assertRaises(schema.SchemaError):
+            schema.validate_frame(df)
+
+
+@unittest.skipUnless(_HAVE_STACK, "pandas/pyarrow not installed")
+class TestParquetRoundTrip(unittest.TestCase):
+    def test_write_then_read_matches(self):
+        from src.ingest import io
+
+        df = canonical_frame()
+        with tempfile.TemporaryDirectory() as root:
+            path = io.write_canonical(df, root, "SPY", dt.date(2024, 6, 3))
+            self.assertTrue(os.path.exists(path))
+            self.assertIn("symbol=SPY", path)
+            self.assertIn("date=2024-06-03", path)
+            back = io.read_canonical(root, "SPY", dt.date(2024, 6, 3))
+
+        self.assertEqual(list(back.columns), schema.field_names())
+        self.assertEqual(len(back), 2)
+        self.assertEqual(set(back["type"]), {"call", "put"})
+        self.assertEqual(schema.validate_frame(back), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

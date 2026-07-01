@@ -65,7 +65,7 @@ Legend: **Yes** = supported. **Partial** = supported with a meaningful caveat (s
 ### Polygon.io
 - **History depth:** in current Polygon/Massive flat-file docs, options **quotes** start ~2022, while
   **trades and minute/day aggregates go back to ~2014** (older Polygon docs cited 2016, so verify by
-  entitlement). Sources real-time and historical from **OPRA across all 17 US options exchanges**.
+  entitlement). Sources real-time and historical from **OPRA across all participant US options exchanges**.
   Full option-chain snapshot endpoint returns greeks, IV, and open interest; equities well covered.
 - **Strengths:** strong all-rounder; genuine OPRA-level tick data plus convenience snapshots with
   Polygon-computed greeks/IV; WebSocket streaming; developer-friendly REST.

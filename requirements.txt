@@ -1,0 +1,13 @@
+# Phase 1 data stack. The canonical schema (src/ingest/schema.py) is stdlib-only
+# and needs none of these; they are required to exercise the parquet store
+# (src/ingest/io.py) and concrete vendor adapters, starting in M0/M1.
+#
+# Compatible-release pins for now; M0 freezes exact versions into a lockfile
+# (docs/phase_1_plan.md guiding principle "Reproducibility").
+pandas~=2.2
+pyarrow~=18.0
+numpy~=2.1
+scipy~=1.14
+
+# Dev/test (tests currently run on stdlib unittest; pytest optional for later):
+# pytest~=8.3
