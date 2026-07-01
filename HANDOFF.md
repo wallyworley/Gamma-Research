@@ -3,7 +3,7 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-01 (M0 complete: env frozen + config + CI; M1 contract locked).
+Last updated: 2026-07-01 (M1 EODHD adapter built + live-verified; M0 complete).
 
 ## What this repo is
 
@@ -67,6 +67,23 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
   Hive path invented a dictionary `symbol` partition column that collided with the file's string
   `symbol`; `read_canonical` now reads the single file directly.
 
+### Code: M1 first vendor adapter (EODHD) built + live-verified
+- `src/ingest/adapters/eodhd.py` - `EodhdAdapter` (registered as `"eodhd"`) mapping the EODHD
+  UnicornBay options **EOD** API (`/api/mp/unicornbay/options/eod`, JSON:API `data[].attributes`)
+  onto the canonical schema. Verified field names against the live API.
+- **Key finding:** the options payload has **no underlying spot** (only a 2-decimal `moneyness`), so
+  the adapter makes a second call to the EOD stock endpoint (`/api/eod/{SYM}.US`) and attaches that
+  day's `close` as `underlying_price`. `oi_asof_date` left null (undisclosed OI timing => schema's
+  T-1 convention). `quote_ts` = equity close (16:00 America/New_York, DST-aware) in UTC.
+- Split cleanly: `fetch_raw` = live HTTP (paginated chain + underlying close), `normalize` /
+  `_extract_records` = pure mapping, unit-tested against a recorded fixture
+  (`tests/fixtures/eodhd_options_eod_sample.json`).
+- `tests/test_eodhd_adapter.py` - 14 tests incl. an end-to-end normalize -> write_canonical ->
+  read_canonical -> validate pipeline. **45 tests total, all green** (17 skip without the data stack).
+- **Live-smoke-verified** against the EODHD `demo` token: fetched 1000 real AAPL contracts + real
+  underlying close, normalized to a valid canonical frame with zero validation issues.
+- Requires an API token: pass `EodhdAdapter(api_token=...)` or set `EODHD_API_TOKEN`.
+
 ### Two validation passes already incorporated
 1. Round 1 (claims-only; reviewer couldn't see the docs) - fixed GEX formula framing (share vs
    dollar-per-1%-move), Polygon history (~2014 trades/aggs), ORATS 1-min (Aug 2020), Alpha Vantage
@@ -80,16 +97,20 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
 
 ## Open threads / next steps
 
-- **Committed on branch `phase1-m0-m1-scaffold`** (off `master`, no remote). Not merged to `master`
-  or `main`. Recreate the env with `python3 -m venv .venv && .venv/bin/pip install -r
-  requirements.lock.txt`; run tests with `.venv/bin/python -m unittest discover -s tests -v`.
-- **M0 done** (env frozen + pinned config + CI). **M1 is the next build step.**
-- **M1:** write the first concrete `ChainAdapter` (EODHD for cheap EOD greeks/IV/OI) against the
-  locked schema; register it with `@register_adapter`; its `normalize` must attach `underlying_price`,
-  map type casing to `call`/`put`, set `oi_asof_date`, and stamp `_adapter`/`_greek_source`/
-  `_iv_source`. Persist via `src/ingest/io.write_canonical`. NB EODHD options history only reaches
-  ~Q4 2023, so first backtests are shallow until a deeper-history vendor is graduated in (M6). Then
-  M2 = Net GEX / ZeroGEX with golden tests, reading config via `EngineConfig`.
+- **Branch `phase1-m0-m1-scaffold`** on GitHub (`origin`, default branch `main`); PR #1 open. The M1
+  adapter commit lands on this same branch unless split out. Recreate the env with `python3 -m venv
+  .venv && .venv/bin/pip install -r requirements.lock.txt`; run `.venv/bin/python -m unittest
+  discover -s tests -v`.
+- **M0 + M1 done.** **M2 is the next build step.**
+- **M2:** metric engine - Net GEX / per-strike GEX (dollar-per-1%-move: `Gamma x OI x 100 x Spot^2
+  x 0.01`, sign by dealer convention), ZeroGEX (solve Net GEX(S)=0 over a spot grid), and the +/-GEX
+  regime flag. Read the chain via the canonical schema, read conventions via `EngineConfig`
+  (`metrics.gex_convention`, `metrics.dealer_sign_convention`). **Golden tests on a hand-built
+  mini-chain** are the M2 deliverable. Apply the OI T-1 alignment here (rows carry `oi_asof_date`;
+  null => T-1 of `quote_ts`).
+- **Before real backtests:** need a live `EODHD_API_TOKEN` (demo token only returns AAPL sample
+  data). EODHD options history reaches only ~Q4 2023, so early backtests are shallow until a
+  deeper-history vendor is graduated in (M6).
 - **Run validation again** with the filled prompt: `python3 scripts/build_validation_prompt.py`,
   then paste `prompts/validation_prompt.FILLED.md` into a fresh model.
 - **Vendor matrix asterisk:** re-check current plan entitlements before buying any provider; history
