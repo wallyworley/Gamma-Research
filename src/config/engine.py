@@ -72,8 +72,10 @@ class MetricsConfig:
     framework's central unobservable assumption (docs section 3, risk
     "Dealer-sign assumption"); pin it here and test sensitivity to it."""
 
-    gex_convention: str = "dollar_per_1pct"      # see terms doc GEX form
-    dealer_sign_convention: str = "mm_short_gamma"
+    gex_convention: str = "dollar_per_1pct"          # "dollar_per_1pct" | "shares"
+    # Standard convention (terms doc "Foundational caveat"): dealers net long calls,
+    # net short puts, so Net GEX = Call gamma - Put gamma (call +1, put -1).
+    dealer_sign_convention: str = "long_call_short_put"
 
 
 _SECTIONS = {

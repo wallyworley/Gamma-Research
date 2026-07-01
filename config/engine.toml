@@ -30,5 +30,5 @@ allow_same_bar_fill = false   # no same-bar-close fills on the signal bar
 base_currency = "USD"
 
 [metrics]
-gex_convention = "dollar_per_1pct"
-dealer_sign_convention = "mm_short_gamma"
+gex_convention = "dollar_per_1pct"           # "dollar_per_1pct" | "shares"
+dealer_sign_convention = "long_call_short_put"   # dealers long calls / short puts
