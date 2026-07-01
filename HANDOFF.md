@@ -3,7 +3,7 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-01.
+Last updated: 2026-07-01 (M1 canonical contract drafted + tested).
 
 ## What this repo is
 
@@ -34,6 +34,23 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
   (git-ignored) with the three docs embedded inline, ready to paste into another model.
 - `README.md`, `.gitignore`.
 
+### Code: M1 canonical contract locked (schema + adapter interface, before any vendor code)
+- `src/ingest/schema.py` - **single source of truth** for the canonical option-chain schema
+  (`CANONICAL_FIELDS`, version `1.0.0`). Pure stdlib: pandas/pyarrow types are *derived* lazily, so
+  it imports and validates with no data stack. Enforces point-in-time integrity centrally
+  (tz-aware `quote_ts`, `expiration >= quote date`, `oi_asof_date <= quote date`, positive
+  strike/spot). Added `oi_asof_date`, `_iv_source`, `_adapter` vs the original doc table; the plan's
+  data-model table (section 5) was updated to match.
+- `src/ingest/adapter.py` - `ChainAdapter` ABC (`fetch_raw` + `normalize` -> validated `load`
+  template method) + a name-keyed registry so config selects EODHD/ORATS/Polygon. No adapter can
+  leak a non-conforming frame to the metric engine.
+- `src/ingest/io.py` - partitioned parquet store (`symbol=<SYM>/date=<YYYY-MM-DD>/chain.parquet`),
+  validates on write and read. First *exercised* in M1 once the stack is installed.
+- `tests/test_schema_contract.py` - 20 stdlib-`unittest` tests, all passing now
+  (`python3 -m unittest discover -s tests -v`): schema shape, every value/lookahead rule, adapter
+  registry, abstract-instantiation guard.
+- `requirements.txt` - compatible-release pins (pandas/pyarrow/numpy/scipy); M0 freezes exact.
+
 ### Two validation passes already incorporated
 1. Round 1 (claims-only; reviewer couldn't see the docs) - fixed GEX formula framing (share vs
    dollar-per-1%-move), Polygon history (~2014 trades/aggs), ORATS 1-min (Aug 2020), Alpha Vantage
@@ -47,12 +64,18 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
 
 ## Open threads / next steps
 
-- **Not yet committed beyond this checkpoint** (see git log). Nothing else is pending save-wise.
+- **`src/` contract not yet committed** (see git log). Nothing else is pending save-wise.
 - **Run validation again** with the filled prompt: `python3 scripts/build_validation_prompt.py`,
   then paste `prompts/validation_prompt.FILLED.md` into a fresh model.
-- **Start M0** from the phase plan when ready: repo + config scaffolding (Python: pandas/pyarrow/
-  numpy/scipy), pin the pricer/backtest config, then M1 = one vendor adapter (EODHD for cheap EOD)
-  -> canonical parquet, then M2 = Net GEX / ZeroGEX with golden tests.
+- **Finish M0:** create a venv and `pip install -r requirements.txt`, freeze exact versions into a
+  lockfile, add the pricer/backtest config module (`src/config/`: rates, dividends, IV-solve, costs)
+  and CI that runs `python3 -m unittest`. The canonical contract (schema + adapter interface) is
+  already drafted and green, so M0's remaining work is env + config + CI, not data modeling.
+- **Then M1:** write the first concrete `ChainAdapter` (EODHD for cheap EOD greeks/IV/OI) against the
+  locked schema; its `normalize` must attach `underlying_price`, map type casing to `call`/`put`,
+  set `oi_asof_date`, and stamp provenance. NB EODHD options history only reaches ~Q4 2023, so first
+  backtests are shallow until a deeper-history vendor is graduated in (M6). Then M2 = Net GEX /
+  ZeroGEX with golden tests.
 - **Vendor matrix asterisk:** re-check current plan entitlements before buying any provider; history
   depth and features shift by plan.
 

@@ -102,25 +102,38 @@ partitioned by `symbol` and `date`. Keep raw vendor payloads out of git.
 
 ## 5. Canonical data model
 
-One normalized row per contract per timestamp:
+One normalized row per contract per timestamp. **The authoritative, machine-checked definition is
+[`src/ingest/schema.py`](../src/ingest/schema.py)** (`CANONICAL_FIELDS`, schema version `1.0.0`);
+this table mirrors it.
 
 | Field | Notes |
 |---|---|
-| `symbol` | underlying ticker |
-| `quote_ts` | point-in-time timestamp (EOD snapshot or intraday bar) |
-| `expiration` | contract expiry |
-| `strike` | strike price |
-| `type` | call / put |
+| `symbol` | underlying ticker (key) |
+| `quote_ts` | point-in-time timestamp, tz-aware UTC (EOD snapshot or intraday bar) (key) |
+| `expiration` | contract expiry; must be >= quote date (key) |
+| `strike` | strike price, > 0 (key) |
+| `type` | `call` / `put` (key) |
+| `underlying_price` | spot at `quote_ts`, > 0; adapter must attach it (GEX/DEX undefined without it) |
 | `bid`, `ask`, `last` | contract prices (nullable) |
-| `underlying_price` | spot at `quote_ts` |
-| `open_interest` | contracts outstanding (usually T-1 for EOD sources; record the lag) |
+| `open_interest` | contracts outstanding (usually T-1 for EOD sources) |
+| `oi_asof_date` | session the OI is as-of; null => treat as T-1 of `quote_ts`; must be <= quote date |
 | `volume` | contract volume |
 | `iv` | vendor IV, or self-computed (record source) |
 | `delta`,`gamma`,`theta`,`vega`,`rho` | vendor greeks, or self-computed (record source + model) |
-| `_greek_source` | vendor name or pricer id |
+| `_iv_source` | vendor name or pricer id that produced `iv` |
+| `_greek_source` | vendor name or pricer id that produced the greeks |
+| `_adapter` | adapter that produced the row (`ChainAdapter.name`), for cross-vendor comparison (M6) |
+
+The key columns `(symbol, quote_ts, expiration, strike, type)` form the natural key. Non-nullable:
+`symbol`, `quote_ts`, `expiration`, `strike`, `type`, `underlying_price`, `_adapter`. On disk, chains
+are parquet partitioned as `symbol=<SYM>/date=<YYYY-MM-DD>/chain.parquet`.
 
 **OI timing caveat:** exchange OI is typically published for the **prior** session. Treat OI as
-`T-1` unless a vendor states otherwise, and align it point-in-time to avoid lookahead.
+`T-1` unless a vendor states otherwise, and align it point-in-time to avoid lookahead. `oi_asof_date`
+makes this explicit and is validated (`oi_asof_date <= quote date`) so the class of bug cannot pass
+ingestion; likewise `expiration >= quote date` and tz-aware `quote_ts` are enforced centrally
+(see [`validate_records`](../src/ingest/schema.py) and the tests in
+[`tests/test_schema_contract.py`](../tests/test_schema_contract.py)).
 
 ---
 
