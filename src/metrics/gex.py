@@ -25,39 +25,15 @@ import numpy as np
 import pandas as pd
 
 from ..config import EngineConfig
+from ._common import (
+    CONTRACT_SIZE,
+    dealer_signs,
+    dollar_factor,
+    resolve_config,
+)
 from .blackscholes import bs_gamma
 
-_CONTRACT_SIZE = 100
-
-_DEALER_SIGNS = {
-    "long_call_short_put": {"call": 1.0, "put": -1.0},
-    "short_call_long_put": {"call": -1.0, "put": 1.0},
-}
-
 _DAY_COUNTS = {"act/365": 365.0, "act/365.25": 365.25}
-
-
-def _cfg(config: EngineConfig | None) -> EngineConfig:
-    return config if config is not None else EngineConfig.default()
-
-
-def _signs(df: pd.DataFrame, convention: str) -> np.ndarray:
-    try:
-        mapping = _DEALER_SIGNS[convention]
-    except KeyError:
-        raise ValueError(
-            f"unknown dealer_sign_convention {convention!r}; "
-            f"known: {sorted(_DEALER_SIGNS)}") from None
-    return df["type"].map(mapping).fillna(0.0).to_numpy(dtype=float)
-
-
-def _dollar_factor(spot, gex_convention: str):
-    """Scalar (or array) weight applied on top of shares. Spot may be array."""
-    if gex_convention == "dollar_per_1pct":
-        return np.asarray(spot, dtype=float) ** 2 * 0.01
-    if gex_convention == "shares":
-        return 1.0
-    raise ValueError(f"unknown gex_convention {gex_convention!r}; known: dollar_per_1pct, shares")
 
 
 def contract_gex(df: pd.DataFrame, *, config: EngineConfig | None = None,
@@ -67,14 +43,14 @@ def contract_gex(df: pd.DataFrame, *, config: EngineConfig | None = None,
     ``spot`` overrides the per-row underlying_price used in the dollar factor
     (the ZeroGEX solver passes a candidate spot; normal callers leave it None).
     """
-    cfg = _cfg(config)
-    signs = _signs(df, cfg.metrics.dealer_sign_convention)
+    cfg = resolve_config(config)
+    signs = dealer_signs(df, cfg.metrics.dealer_sign_convention)
     gamma = df["gamma"].astype("float64").fillna(0.0).to_numpy()
     oi = df["open_interest"].astype("float64").fillna(0.0).to_numpy()
     if spot is None:
         spot = df["underlying_price"].astype("float64").to_numpy()
-    factor = _dollar_factor(spot, cfg.metrics.gex_convention)
-    values = signs * gamma * oi * _CONTRACT_SIZE * factor
+    factor = dollar_factor(spot, cfg.metrics.gex_convention)
+    values = signs * gamma * oi * CONTRACT_SIZE * factor
     return pd.Series(values, index=df.index, name="gex")
 
 
@@ -121,12 +97,12 @@ def zero_gex(df: pd.DataFrame, *, config: EngineConfig | None = None,
     sign change nearest to spot. Contracts without a positive T, sigma (iv), and
     open interest cannot be repriced and are excluded.
     """
-    cfg = _cfg(config)
+    cfg = resolve_config(config)
     if df.empty:
         return None
 
     spot0 = float(df["underlying_price"].iloc[0])
-    signs = _signs(df, cfg.metrics.dealer_sign_convention)
+    signs = dealer_signs(df, cfg.metrics.dealer_sign_convention)
     K = df["strike"].astype("float64").to_numpy()
     sigma = df["iv"].astype("float64").fillna(0.0).to_numpy()
     oi = df["open_interest"].astype("float64").fillna(0.0).to_numpy()
@@ -143,7 +119,7 @@ def zero_gex(df: pd.DataFrame, *, config: EngineConfig | None = None,
     def net_at(s: float) -> float:
         gamma_s = bs_gamma(s, K, T, sigma, r, q)
         factor = (s * s * 0.01) if is_dollar else 1.0
-        return float(np.sum(signs * gamma_s * oi * _CONTRACT_SIZE * factor))
+        return float(np.sum(signs * gamma_s * oi * CONTRACT_SIZE * factor))
 
     grid = np.linspace(spot0 * lo_frac, spot0 * hi_frac, n)
     nets = np.array([net_at(s) for s in grid])

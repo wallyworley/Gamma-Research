@@ -3,7 +3,7 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-01 (M2 GEX metric engine + golden tests; M0/M1 done).
+Last updated: 2026-07-01 (M3 proxy suite: DEX/GEX-Ratio/OI-levels/grade; M0-M2 done).
 
 ## What this repo is
 
@@ -101,6 +101,24 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
   validated by its sign-change property + no-crossing/empty cases. **59 tests total, all green** (32
   skip without the data stack; suite also passes under `-W error::DeprecationWarning`).
 
+### Code: M3 proxy metric suite - on branch `phase1-m3-proxy-metrics` (off main)
+- `src/metrics/_common.py` - shared dealer-sign / contract-size / dollar-factor helpers; `gex.py`
+  refactored to use them (so GEX and DEX can't drift on the dealer convention).
+- `src/metrics/dex.py` - DEX / dealer delta balance (`DealerSign*Delta*OI*100*Spot`) split above/
+  below/at spot (`DexBalance`, with a normalized `skew_proxy`); `db_change` (series diff).
+- `src/metrics/ratios.py` - `gex_ratio` (`|Call GEX|/|Put GEX|`; +inf if no puts) + `trailing_percentile`.
+- `src/metrics/levels.py` - `oi_levels` (COI/POI argmax-OI strikes + totals), `moneyness_levels`
+  (COTMP/COTMC/CITMP/CITMC grid), `gamma_transitions` (PTrans/NTrans per-strike dominance flips).
+- `src/metrics/grade.py` - `grade_proxy`: owned 0-10 composite of regime, GEX-ratio percentile,
+  delta-balance skew, distance-to-ZeroGEX, OI-level proximity; published weights (normalized so the
+  score is always in [0,10]). Labeled a proxy, never "Grade 11".
+- All proprietary-derived outputs carry a `_proxy` suffix; every metric reads the canonical schema and
+  takes the dealer sign / GEX form from `EngineConfig`. Grounded in `reddit_gamma_strategy_terms.md`.
+- `tests/test_proxy_metrics.py` - golden tests: exact DEX buckets (above 81M / below 70.5M / net
+  151.5M), convention flip, db_change, GEX-ratio cases, COI/POI + the full moneyness grid, PTrans/
+  NTrans dominance, and grade range/monotonicity. **75 tests total, all green** (48 skip without the
+  data stack; passes under `-W error::DeprecationWarning`).
+
 ### Two validation passes already incorporated
 1. Round 1 (claims-only; reviewer couldn't see the docs) - fixed GEX formula framing (share vs
    dollar-per-1%-move), Polygon history (~2014 trades/aggs), ORATS 1-min (Aug 2020), Alpha Vantage
@@ -114,19 +132,22 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
 
 ## Open threads / next steps
 
-- **Branches on GitHub (`origin`, default `main`):** PR #1 = `phase1-m0-m1-scaffold` (contract + M0 +
-  M1). PR #2 = `phase1-m2-metrics` (M2), stacked on PR #1. Recreate the env with `python3 -m venv
-  .venv && .venv/bin/pip install -r requirements.lock.txt`; run `.venv/bin/python -m unittest
+- **On GitHub (`origin`, default `main`):** M0/M1 (PR #1) and M2 (PR #3) are **merged to `main`**.
+  M3 is on branch `phase1-m3-proxy-metrics` (PR #4, base `main`). Recreate the env with `python3 -m
+  venv .venv && .venv/bin/pip install -r requirements.lock.txt`; run `.venv/bin/python -m unittest
   discover -s tests -v`.
-- **M0 + M1 + M2 done.** **M3 is the next build step.**
-- **M3:** the proxy metric suite on top of M2 - DEX / dealer delta balance
-  (`DealerSign*Delta*OI*100*Spot`, split above/below spot), `db_change`, GEX Ratio
-  (`|Call GEX|/|Put GEX|` + trailing percentile), COI/POI levels (argmax-OI strikes), COTMP/COTMC/
-  CITMP/CITMC OI-concentration buckets, PTrans/NTrans proxies, and `grade_proxy`. Every proxy gets a
-  `_proxy` suffix and a config-driven definition (docs/phase_1_plan.md section 6). Reuse the
-  `contract_gex` / dealer-sign plumbing from `src/metrics/gex.py`.
-- **Point-in-time / OI T-1 alignment** is deferred to the M4 backtester (needs a time series); a single
-  M2/M3 snapshot uses OI as reported (rows carry `oi_asof_date`; null => T-1 of `quote_ts`).
+- **M0 + M1 + M2 + M3 done.** **M4 is the next build step.**
+- **M4:** the event-driven backtester on the underlying (docs/phase_1_plan.md section 7) - point-in-time
+  loop over the canonical timeline, next-bar-open fills (never same-bar-close on the signal bar; the
+  guard `backtest.allow_same_bar_fill=false` is already pinned), cost model
+  (`CostConfig`: commission + slippage bps + optional half-spread), and position/PnL accounting.
+  **This is where OI T-1 alignment finally bites:** the loop must index each metric at bar `t` using
+  only data with timestamp <= `t` (rows carry `oi_asof_date`; null => T-1 of `quote_ts`). Signals
+  (M4 stretch) turn `gamma_snapshot` / proxy outputs into a target position.
+- **Metric API recap for M4/signals:** `from src.metrics import gamma_snapshot, dealer_delta_balance,
+  gex_ratio, oi_levels, moneyness_levels, gamma_transitions, grade_proxy`. History-dependent pieces
+  (`db_change`, `trailing_percentile`, grade's `gex_ratio_percentile`) take a series the backtester
+  accumulates.
 - **Before real backtests:** need a live `EODHD_API_TOKEN` (demo token only returns AAPL sample
   data). EODHD options history reaches only ~Q4 2023, so early backtests are shallow until a
   deeper-history vendor is graduated in (M6).
