@@ -1,0 +1,34 @@
+# Pinned Phase 1 engine configuration.
+#
+# This file mirrors the code defaults in src/config/engine.py. A drift test
+# (tests/test_config.py) asserts EngineConfig.from_toml(this) == EngineConfig.default(),
+# so the two cannot silently diverge. Edit here to override a run's assumptions;
+# every run stamps EngineConfig.config_hash() for reproducibility.
+
+version = "1.0.0"
+
+[pricer]
+model = "black_scholes"
+risk_free_rate = 0.04      # annualized, flat until a rate curve is wired
+dividend_yield = 0.0       # continuous annualized
+day_count = "act/365"
+iv_method = "brent"
+iv_tol = 1e-6
+iv_max_iter = 100
+iv_vol_lo = 1e-4           # IV solve bracket, lower bound
+iv_vol_hi = 5.0            # IV solve bracket, upper bound
+
+[costs]
+commission_per_trade = 0.0
+slippage_bps = 1.0
+half_spread_cost = false
+
+[backtest]
+initial_capital = 100000.0
+fill_timing = "next_bar_open"
+allow_same_bar_fill = false   # no same-bar-close fills on the signal bar
+base_currency = "USD"
+
+[metrics]
+gex_convention = "dollar_per_1pct"
+dealer_sign_convention = "mm_short_gamma"

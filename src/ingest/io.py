@@ -43,11 +43,18 @@ def write_canonical(frame: "pd.DataFrame", root: str, symbol: str,
 
 def read_canonical(root: str, symbol: str,
                    quote_date: "date | datetime | str") -> "pd.DataFrame":
-    """Read one symbol/date partition back as a validated canonical DataFrame."""
+    """Read one symbol/date partition back as a validated canonical DataFrame.
+
+    Reads the single file directly (ParquetFile) rather than pq.read_table on the
+    path: the latter would infer Hive partitioning from the ``symbol=.../date=...``
+    directories and synthesize a dictionary-typed ``symbol`` partition column that
+    collides with the real ``symbol`` string column kept inside the file. Callers
+    already pass (symbol, quote_date), so no reconstruction from the path is needed.
+    """
     import pyarrow.parquet as pq
 
     path = os.path.join(root, partition_relpath(symbol, quote_date), _FILENAME)
-    frame = pq.read_table(path).to_pandas(types_mapper=None)
+    frame = pq.ParquetFile(path).read().to_pandas()
     validate_frame(frame)
     return frame
 

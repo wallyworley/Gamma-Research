@@ -3,7 +3,7 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-01 (M1 canonical contract drafted + tested).
+Last updated: 2026-07-01 (M0 complete: env frozen + config + CI; M1 contract locked).
 
 ## What this repo is
 
@@ -49,7 +49,23 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
 - `tests/test_schema_contract.py` - 20 stdlib-`unittest` tests, all passing now
   (`python3 -m unittest discover -s tests -v`): schema shape, every value/lookahead rule, adapter
   registry, abstract-instantiation guard.
-- `requirements.txt` - compatible-release pins (pandas/pyarrow/numpy/scipy); M0 freezes exact.
+- `requirements.txt` - compatible-release pins (pandas/pyarrow/numpy/scipy).
+
+### Code: M0 complete (env frozen + pinned config + CI)
+- Committed on branch `phase1-m0-m1-scaffold` (off `master`; no remote yet).
+- `src/config/engine.py` + `config/engine.toml` - pinned pricer / cost / backtest / metric config.
+  Code holds the defaults; the TOML mirrors them and a drift test asserts they stay equal. Every
+  config exposes `config_hash()` to stamp reproducible runs. Encodes the no-lookahead fill guard
+  (`allow_same_bar_fill=false`) and the foundational `dealer_sign_convention`.
+- `requirements.lock.txt` - exact frozen versions (numpy 2.5.0, pandas 2.3.3, pyarrow 18.1.0,
+  scipy 1.18.0, + transitives) from a local `.venv` (gitignored). Install byte-identical envs with
+  `pip install -r requirements.lock.txt`.
+- `.github/workflows/ci.yml` - runs contract tests stdlib-only first (fail fast), then installs the
+  stack and reruns the full suite, on Python 3.11 + 3.13.
+- `tests/test_config.py` (7) + `tests/test_io_roundtrip.py` (4, skip without the stack).
+  **31 tests total, all green.** The io round-trip caught and fixed a real bug: `pq.read_table` on a
+  Hive path invented a dictionary `symbol` partition column that collided with the file's string
+  `symbol`; `read_canonical` now reads the single file directly.
 
 ### Two validation passes already incorporated
 1. Round 1 (claims-only; reviewer couldn't see the docs) - fixed GEX formula framing (share vs
@@ -64,18 +80,18 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
 
 ## Open threads / next steps
 
-- **`src/` contract not yet committed** (see git log). Nothing else is pending save-wise.
+- **Committed on branch `phase1-m0-m1-scaffold`** (off `master`, no remote). Not merged to `master`
+  or `main`. Recreate the env with `python3 -m venv .venv && .venv/bin/pip install -r
+  requirements.lock.txt`; run tests with `.venv/bin/python -m unittest discover -s tests -v`.
+- **M0 done** (env frozen + pinned config + CI). **M1 is the next build step.**
+- **M1:** write the first concrete `ChainAdapter` (EODHD for cheap EOD greeks/IV/OI) against the
+  locked schema; register it with `@register_adapter`; its `normalize` must attach `underlying_price`,
+  map type casing to `call`/`put`, set `oi_asof_date`, and stamp `_adapter`/`_greek_source`/
+  `_iv_source`. Persist via `src/ingest/io.write_canonical`. NB EODHD options history only reaches
+  ~Q4 2023, so first backtests are shallow until a deeper-history vendor is graduated in (M6). Then
+  M2 = Net GEX / ZeroGEX with golden tests, reading config via `EngineConfig`.
 - **Run validation again** with the filled prompt: `python3 scripts/build_validation_prompt.py`,
   then paste `prompts/validation_prompt.FILLED.md` into a fresh model.
-- **Finish M0:** create a venv and `pip install -r requirements.txt`, freeze exact versions into a
-  lockfile, add the pricer/backtest config module (`src/config/`: rates, dividends, IV-solve, costs)
-  and CI that runs `python3 -m unittest`. The canonical contract (schema + adapter interface) is
-  already drafted and green, so M0's remaining work is env + config + CI, not data modeling.
-- **Then M1:** write the first concrete `ChainAdapter` (EODHD for cheap EOD greeks/IV/OI) against the
-  locked schema; its `normalize` must attach `underlying_price`, map type casing to `call`/`put`,
-  set `oi_asof_date`, and stamp provenance. NB EODHD options history only reaches ~Q4 2023, so first
-  backtests are shallow until a deeper-history vendor is graduated in (M6). Then M2 = Net GEX /
-  ZeroGEX with golden tests.
 - **Vendor matrix asterisk:** re-check current plan entitlements before buying any provider; history
   depth and features shift by plan.
 
