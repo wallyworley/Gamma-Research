@@ -3,7 +3,7 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-01 (M3 proxy suite: DEX/GEX-Ratio/OI-levels/grade; M0-M2 done).
+Last updated: 2026-07-01 (M4 event-driven backtester + cost model; M0-M3 done).
 
 ## What this repo is
 
@@ -119,6 +119,23 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
   NTrans dominance, and grade range/monotonicity. **75 tests total, all green** (48 skip without the
   data stack; passes under `-W error::DeprecationWarning`).
 
+### Code: M4 event-driven backtester - on branch `phase1-m4-backtester` (off main)
+- `src/backtest/engine.py` - `run_backtest(bars, target_position, config)`: non-live, simulated fills
+  only. Signal-agnostic - consumes a bar timeline (`open`/`close`, datetime-indexed; `validate_bars`)
+  plus a per-bar **target weight** series in [-1,1] and returns net/gross equity, a trade log, and
+  stats. **Point-in-time rule:** `target_position[t]` is decided at bar t's close and executed at
+  bar t+1's **open** (never same-bar-close). `backtest.allow_same_bar_fill` (pinned False) flips to
+  same-close only for measuring the look-ahead a naive fill would steal.
+- Costs from `CostConfig`: flat commission + slippage bps on traded notional. Every run reports **net
+  and gross** so cost drag is explicit.
+- `src/backtest/stats.py` - `total_return`, `max_drawdown`, `summarize`, and a `buy_and_hold` baseline.
+- `tests/test_backtest.py` - golden hand-computed equity path (`[100000, 110000, 110000]`), exact cost
+  drag (net final `109,979`, total cost `21`), the no-lookahead proof (d0 signal fills at d1 open, not
+  d0 close), drawdown, baseline, and bars validation. **85 tests total, all green** (58 skip without
+  the data stack; passes under `-W error::DeprecationWarning`).
+- **Not yet wired:** the signal layer (gamma-structure rule -> target weights) and building `bars`
+  from a vendor. The EODHD stock EOD call already returns OHLC, so `bars` is a thin adapter step.
+
 ### Two validation passes already incorporated
 1. Round 1 (claims-only; reviewer couldn't see the docs) - fixed GEX formula framing (share vs
    dollar-per-1%-move), Polygon history (~2014 trades/aggs), ORATS 1-min (Aug 2020), Alpha Vantage
@@ -132,22 +149,23 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
 
 ## Open threads / next steps
 
-- **On GitHub (`origin`, default `main`):** M0/M1 (PR #1) and M2 (PR #3) are **merged to `main`**.
-  M3 is on branch `phase1-m3-proxy-metrics` (PR #4, base `main`). Recreate the env with `python3 -m
-  venv .venv && .venv/bin/pip install -r requirements.lock.txt`; run `.venv/bin/python -m unittest
-  discover -s tests -v`.
-- **M0 + M1 + M2 + M3 done.** **M4 is the next build step.**
-- **M4:** the event-driven backtester on the underlying (docs/phase_1_plan.md section 7) - point-in-time
-  loop over the canonical timeline, next-bar-open fills (never same-bar-close on the signal bar; the
-  guard `backtest.allow_same_bar_fill=false` is already pinned), cost model
-  (`CostConfig`: commission + slippage bps + optional half-spread), and position/PnL accounting.
-  **This is where OI T-1 alignment finally bites:** the loop must index each metric at bar `t` using
-  only data with timestamp <= `t` (rows carry `oi_asof_date`; null => T-1 of `quote_ts`). Signals
-  (M4 stretch) turn `gamma_snapshot` / proxy outputs into a target position.
-- **Metric API recap for M4/signals:** `from src.metrics import gamma_snapshot, dealer_delta_balance,
+- **On GitHub (`origin`, default `main`):** M0/M1 (PR #1), M2 (PR #3), M3 (PR #4) are all **merged to
+  `main`**. M4 is on branch `phase1-m4-backtester` (PR #5, base `main`). Recreate the env with
+  `python3 -m venv .venv && .venv/bin/pip install -r requirements.lock.txt`; run `.venv/bin/python -m
+  unittest discover -s tests -v`.
+- **M0 - M4 done.** **M5 (evaluation harness) + the signal layer are next.**
+- **Signal layer (small, do first):** `src/signals/` mapping a time series of chain snapshots to a
+  per-bar target-weight series the backtester consumes. Start with one transparent rule, e.g. +GEX ->
+  long / -GEX -> flat using `gamma_snapshot(chain_t).regime`. Decide the target at bar t's close; the
+  engine already fills it at t+1 open (no lookahead). Build `bars` (open/close) from the EODHD stock
+  EOD call (already returns OHLC).
+- **M5 evaluation harness:** regime attribution (+GEX vs -GEX buckets), the random-entry control and
+  buy-and-hold baselines (buy_and_hold exists), a cost/slippage grid sweep, and a reproducible
+  scorecard per rule (docs/phase_1_plan.md sections 8-9). `EngineConfig.config_hash()` stamps runs.
+- **Metric API recap for signals:** `from src.metrics import gamma_snapshot, dealer_delta_balance,
   gex_ratio, oi_levels, moneyness_levels, gamma_transitions, grade_proxy`. History-dependent pieces
-  (`db_change`, `trailing_percentile`, grade's `gex_ratio_percentile`) take a series the backtester
-  accumulates.
+  (`db_change`, `trailing_percentile`, grade's `gex_ratio_percentile`) take a series the harness
+  accumulates across bars.
 - **Before real backtests:** need a live `EODHD_API_TOKEN` (demo token only returns AAPL sample
   data). EODHD options history reaches only ~Q4 2023, so early backtests are shallow until a
   deeper-history vendor is graduated in (M6).
