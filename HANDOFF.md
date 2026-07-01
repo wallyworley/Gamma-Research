@@ -3,7 +3,7 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-01 (M1 EODHD adapter built + live-verified; M0 complete).
+Last updated: 2026-07-01 (M2 GEX metric engine + golden tests; M0/M1 done).
 
 ## What this repo is
 
@@ -84,6 +84,23 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
   underlying close, normalized to a valid canonical frame with zero validation issues.
 - Requires an API token: pass `EodhdAdapter(api_token=...)` or set `EODHD_API_TOKEN`.
 
+### Code: M2 GEX metric engine (Net GEX / ZeroGEX / regime) - on branch `phase1-m2-metrics`
+- Branch `phase1-m2-metrics` off `phase1-m0-m1-scaffold` (stacked PR #2, base = the scaffold branch).
+- `src/metrics/gex.py` - Net GEX / per-strike GEX (dollar-per-1% form `sign*gamma*OI*100*Spot^2*0.01`),
+  `gex_by_strike`, `regime` (+GEX/-GEX/flat), `zero_gex`, and a `gamma_snapshot` summary. All read the
+  canonical schema; dealer sign + GEX form come from `EngineConfig` (never hard-coded), grounded in
+  `docs/reddit_gamma_strategy_terms.md`.
+- `src/metrics/blackscholes.py` - `bs_gamma` (BS gamma). ZeroGEX **recomputes** gamma at candidate
+  spots (holding vendor gamma fixed can't flip sign - the `Spot^2*0.01` weight is a positive scalar),
+  then interpolates the Net GEX sign change nearest spot. Uses `PricerConfig` r/q/day-count.
+- **Config rename:** `metrics.dealer_sign_convention` default `mm_short_gamma` -> `long_call_short_put`
+  (unambiguous: calls +1 / puts -1, per the terms doc). Changed in both `src/config/engine.py` and
+  `config/engine.toml` on this branch; drift test still green.
+- `tests/test_gex_metrics.py` - golden tests: exact hand-computed Net GEX (`-150,000` on the mini-chain),
+  shares vs dollar form, dealer-convention sign flip, exact BS gamma (`0.01984763` ATM), and ZeroGEX
+  validated by its sign-change property + no-crossing/empty cases. **59 tests total, all green** (32
+  skip without the data stack; suite also passes under `-W error::DeprecationWarning`).
+
 ### Two validation passes already incorporated
 1. Round 1 (claims-only; reviewer couldn't see the docs) - fixed GEX formula framing (share vs
    dollar-per-1%-move), Polygon history (~2014 trades/aggs), ORATS 1-min (Aug 2020), Alpha Vantage
@@ -97,17 +114,19 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
 
 ## Open threads / next steps
 
-- **Branch `phase1-m0-m1-scaffold`** on GitHub (`origin`, default branch `main`); PR #1 open. The M1
-  adapter commit lands on this same branch unless split out. Recreate the env with `python3 -m venv
+- **Branches on GitHub (`origin`, default `main`):** PR #1 = `phase1-m0-m1-scaffold` (contract + M0 +
+  M1). PR #2 = `phase1-m2-metrics` (M2), stacked on PR #1. Recreate the env with `python3 -m venv
   .venv && .venv/bin/pip install -r requirements.lock.txt`; run `.venv/bin/python -m unittest
   discover -s tests -v`.
-- **M0 + M1 done.** **M2 is the next build step.**
-- **M2:** metric engine - Net GEX / per-strike GEX (dollar-per-1%-move: `Gamma x OI x 100 x Spot^2
-  x 0.01`, sign by dealer convention), ZeroGEX (solve Net GEX(S)=0 over a spot grid), and the +/-GEX
-  regime flag. Read the chain via the canonical schema, read conventions via `EngineConfig`
-  (`metrics.gex_convention`, `metrics.dealer_sign_convention`). **Golden tests on a hand-built
-  mini-chain** are the M2 deliverable. Apply the OI T-1 alignment here (rows carry `oi_asof_date`;
-  null => T-1 of `quote_ts`).
+- **M0 + M1 + M2 done.** **M3 is the next build step.**
+- **M3:** the proxy metric suite on top of M2 - DEX / dealer delta balance
+  (`DealerSign*Delta*OI*100*Spot`, split above/below spot), `db_change`, GEX Ratio
+  (`|Call GEX|/|Put GEX|` + trailing percentile), COI/POI levels (argmax-OI strikes), COTMP/COTMC/
+  CITMP/CITMC OI-concentration buckets, PTrans/NTrans proxies, and `grade_proxy`. Every proxy gets a
+  `_proxy` suffix and a config-driven definition (docs/phase_1_plan.md section 6). Reuse the
+  `contract_gex` / dealer-sign plumbing from `src/metrics/gex.py`.
+- **Point-in-time / OI T-1 alignment** is deferred to the M4 backtester (needs a time series); a single
+  M2/M3 snapshot uses OI as reported (rows carry `oi_asof_date`; null => T-1 of `quote_ts`).
 - **Before real backtests:** need a live `EODHD_API_TOKEN` (demo token only returns AAPL sample
   data). EODHD options history reaches only ~Q4 2023, so early backtests are shallow until a
   deeper-history vendor is graduated in (M6).
