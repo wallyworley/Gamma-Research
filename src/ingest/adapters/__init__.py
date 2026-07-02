@@ -7,5 +7,6 @@ through ingest.get_adapter(name).
 
 from .cboe import CboeAdapter
 from .eodhd import EodhdAdapter
+from .massive import MassiveAdapter
 
-__all__ = ["EodhdAdapter", "CboeAdapter"]
+__all__ = ["EodhdAdapter", "CboeAdapter", "MassiveAdapter"]

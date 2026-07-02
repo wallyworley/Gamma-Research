@@ -1,0 +1,192 @@
+{
+ "underlying_close": 294.38,
+ "session_date": "2026-07-01",
+ "results": [
+  {
+   "day": {
+    "change": 11.78,
+    "change_percent": 705.389,
+    "close": 13.45,
+    "high": 14.4,
+    "last_updated": 1782964800000000000,
+    "low": 1,
+    "open": 1.14,
+    "previous_close": 1.67,
+    "volume": 8892,
+    "vwap": 8.5016
+   },
+   "details": {
+    "contract_type": "call",
+    "exercise_style": "american",
+    "expiration_date": "2026-07-02",
+    "shares_per_contract": 100,
+    "strike_price": 295,
+    "ticker": "O:AAPL260702C00295000"
+   },
+   "greeks": {},
+   "open_interest": 13575,
+   "underlying_asset": {
+    "ticker": "AAPL"
+   }
+  },
+  {
+   "day": {
+    "change": -2.02,
+    "change_percent": -99.5,
+    "close": 0.01,
+    "high": 2.2,
+    "last_updated": 1782964800000000000,
+    "low": 0.01,
+    "open": 2.03,
+    "previous_close": 2.03,
+    "volume": 25896,
+    "vwap": 0.1848
+   },
+   "details": {
+    "contract_type": "put",
+    "exercise_style": "american",
+    "expiration_date": "2026-07-02",
+    "shares_per_contract": 100,
+    "strike_price": 295,
+    "ticker": "O:AAPL260702P00295000"
+   },
+   "greeks": {
+    "delta": -0.007663796445303146,
+    "gamma": 0.003663259421091929,
+    "theta": -2.23947720081186,
+    "vega": 0.0005644980951177102
+   },
+   "implied_volatility": 2.166824209735289,
+   "open_interest": 4718,
+   "underlying_asset": {
+    "ticker": "AAPL"
+   }
+  },
+  {
+   "day": {
+    "change": 10.87,
+    "change_percent": 398.168,
+    "close": 13.6,
+    "high": 14.4,
+    "last_updated": 1782964800000000000,
+    "low": 2.19,
+    "open": 2.29,
+    "previous_close": 2.73,
+    "volume": 3201,
+    "vwap": 7.1279
+   },
+   "details": {
+    "contract_type": "call",
+    "exercise_style": "american",
+    "expiration_date": "2026-07-06",
+    "shares_per_contract": 100,
+    "strike_price": 295,
+    "ticker": "O:AAPL260706C00295000"
+   },
+   "greeks": {
+    "delta": 0.9999636823848728,
+    "gamma": -4.98423813042518e-11,
+    "theta": -0.02669267051953648,
+    "vega": -0.00016316577387786915
+   },
+   "implied_volatility": 0.0006429151221610324,
+   "open_interest": 3880,
+   "underlying_asset": {
+    "ticker": "AAPL"
+   }
+  },
+  {
+   "day": {
+    "change": -3.07,
+    "change_percent": -97.5,
+    "close": 0.08,
+    "high": 3.17,
+    "last_updated": 1782964800000000000,
+    "low": 0.06,
+    "open": 3.17,
+    "previous_close": 3.15,
+    "volume": 8642,
+    "vwap": 0.3471
+   },
+   "details": {
+    "contract_type": "put",
+    "exercise_style": "american",
+    "expiration_date": "2026-07-06",
+    "shares_per_contract": 100,
+    "strike_price": 295,
+    "ticker": "O:AAPL260706P00295000"
+   },
+   "greeks": {
+    "delta": -0.03027754402914347,
+    "gamma": 0.009245859221571116,
+    "theta": -0.06390394541459712,
+    "vega": 0.0314833474810542
+   },
+   "implied_volatility": 0.23192635358440788,
+   "open_interest": 397,
+   "underlying_asset": {
+    "ticker": "AAPL"
+   }
+  },
+  {
+   "day": {
+    "change": 13.3,
+    "change_percent": 427.653,
+    "close": 16.41,
+    "high": 16.65,
+    "last_updated": 1782964800000000000,
+    "low": 2.37,
+    "open": 2.63,
+    "previous_close": 3.11,
+    "volume": 6042,
+    "vwap": 12.1703
+   },
+   "details": {
+    "contract_type": "call",
+    "exercise_style": "american",
+    "expiration_date": "2026-07-02",
+    "shares_per_contract": 100,
+    "strike_price": 292.5,
+    "ticker": "O:AAPL260702C00292500"
+   },
+   "greeks": {},
+   "open_interest": 8224,
+   "underlying_asset": {
+    "ticker": "AAPL"
+   }
+  },
+  {
+   "day": {
+    "change": -1.03,
+    "change_percent": -99,
+    "close": 0.01,
+    "high": 1.1,
+    "last_updated": 1782964800000000000,
+    "low": 0.01,
+    "open": 0.66,
+    "previous_close": 1.04,
+    "volume": 15223,
+    "vwap": 0.06602
+   },
+   "details": {
+    "contract_type": "put",
+    "exercise_style": "american",
+    "expiration_date": "2026-07-02",
+    "shares_per_contract": 100,
+    "strike_price": 292.5,
+    "ticker": "O:AAPL260702P00292500"
+   },
+   "greeks": {
+    "delta": -0.006627312074389097,
+    "gamma": 0.0027497938090672914,
+    "theta": -2.299803207623492,
+    "vega": 0.0005621131809703413
+   },
+   "implied_volatility": 2.5344027962443807,
+   "open_interest": 6039,
+   "underlying_asset": {
+    "ticker": "AAPL"
+   }
+  }
+ ]
+}
