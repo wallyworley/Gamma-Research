@@ -75,6 +75,18 @@ class TestCosts(unittest.TestCase):
         self.assertAlmostEqual(res.gross_equity.iloc[-1], 110000.0)
         self.assertGreater(res.stats["cost_drag"], 0.0)
 
+    def test_half_spread_bps_adds_cost(self):
+        # F6: half_spread_bps is now wired; 100 bps of half-spread must cost more.
+        from src.backtest import run_backtest
+        sig = target({"2024-06-03": 1.0, "2024-06-04": 0.0})
+        base = run_backtest(scenario(), sig, config=EngineConfig.from_dict(
+            {"costs": {"commission_per_trade": 0.0, "slippage_bps": 0.0, "half_spread_bps": 0.0}}))
+        spread = run_backtest(scenario(), sig, config=EngineConfig.from_dict(
+            {"costs": {"commission_per_trade": 0.0, "slippage_bps": 0.0, "half_spread_bps": 100.0}}))
+        self.assertAlmostEqual(base.stats["total_cost"], 0.0)
+        self.assertGreater(spread.stats["total_cost"], 0.0)
+        self.assertLess(spread.net_equity.iloc[-1], base.net_equity.iloc[-1])
+
     def test_zero_cost_net_equals_gross(self):
         from src.backtest import run_backtest
         cfg = EngineConfig.from_dict({"costs": {"commission_per_trade": 0.0, "slippage_bps": 0.0}})

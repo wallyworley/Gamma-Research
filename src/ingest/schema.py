@@ -168,6 +168,18 @@ def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _pk_key(row: Mapping[str, Any]) -> tuple:
+    """Normalized primary-key tuple for one row (raises if a field is uncoercible)."""
+    qts = row["quote_ts"]
+    return (
+        row["symbol"],
+        qts.isoformat() if hasattr(qts, "isoformat") else str(qts),
+        _coerce_date(row["expiration"]).isoformat(),
+        float(row["strike"]),
+        row["type"],
+    )
+
+
 def _is_tz_aware(value: Any) -> bool:
     if isinstance(value, _dt.datetime):
         return value.tzinfo is not None and value.utcoffset() is not None
@@ -190,6 +202,7 @@ def validate_records(
     """
     issues: list[str] = []
     canonical = set(field_names())
+    seen_pk: dict[tuple, int] = {}   # PRIMARY_KEY tuple -> first row index
 
     for i, row in enumerate(records):
         # unknown columns
@@ -253,6 +266,20 @@ def validate_records(
                         f"{qdate.isoformat()} (open-interest lookahead)")
             except (TypeError, ValueError):
                 issues.append(f"row {i}: oi_asof_date={oi_asof!r} is not a valid date")
+
+        # primary-key uniqueness: one contract per snapshot. A duplicate silently
+        # double-counts OI/GEX downstream, so reject it here.
+        if all(row.get(f) is not None for f in PRIMARY_KEY):
+            try:
+                key = _pk_key(row)
+            except (TypeError, ValueError):
+                key = None
+            if key is not None:
+                if key in seen_pk:
+                    issues.append(
+                        f"row {i}: duplicate primary key {key} (first seen at row {seen_pk[key]})")
+                else:
+                    seen_pk[key] = i
 
     if issues and raise_on_error:
         raise SchemaError(issues)

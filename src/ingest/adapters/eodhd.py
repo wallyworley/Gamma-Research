@@ -18,9 +18,23 @@ Two facts drive the design:
     2-decimal `moneyness`). The canonical schema requires `underlying_price`, so
     the adapter makes a second call to the EOD stock endpoint and attaches that
     day's close to every row.
-  * Open-interest timing is not disclosed, so `oi_asof_date` is left null; the
-    schema defines null as "treat as T-1 of quote_ts", which the metric engine
-    applies point-in-time (docs/phase_1_plan.md section 5 "OI timing caveat").
+  * **Open-interest timing is an assumption, not a verified fact.** EODHD does not
+    document what session its `open_interest` is as-of. Following the standard
+    convention (OCC publishes a session's OI the next morning, so the freshest OI
+    knowable at date T's close is session T-1's), the adapter stamps
+    `oi_asof_date = T - oi_lag_days business days` (default 1). Nothing downstream
+    shifts OI across time; a single snapshot just uses OI as-of that stamped date.
+    **VERIFY before trusting live results (review finding F1):** fetch date T and
+    T+1 for one symbol and compare `open_interest`; if EODHD already reports the
+    T-1 figure under date T, keep `oi_lag_days=1`; if it reports same-session OI,
+    set `oi_lag_days=0` and beware that same-session OI is not knowable at T's close.
+
+**Chain-completeness caveat (review finding F2, UNVERIFIED):** `fetch_raw` filters
+the EOD options endpoint by `tradetime`. If `tradetime` is a last-trade field,
+that filter may drop contracts that did not trade on the date - exactly the deep
+OTM wings whose open interest drives the COI/POI/COTMP levels. Verify against the
+live API (tradetime-filtered contract count vs a date/expiry-filtered count)
+before relying on any OI-concentration metric.
 
 `fetch_raw` does live HTTP (integration-tested with a real token); all mapping
 lives in `normalize`/`_extract_records`, unit-tested against a recorded fixture.
@@ -29,6 +43,7 @@ lives in `normalize`/`_extract_records`, unit-tested against a recorded fixture.
 from __future__ import annotations
 
 import json
+import logging
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timezone
@@ -38,7 +53,9 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from ..adapter import ChainAdapter, register_adapter
-from ..schema import field_names, pandas_dtypes
+from ..schema import PRIMARY_KEY, field_names, pandas_dtypes
+
+_log = logging.getLogger(__name__)
 
 # US options mark at the equity close; EOD snapshot timestamp = that close in UTC.
 # Using a real tz (not a fixed offset) keeps DST correct across the year.
@@ -85,13 +102,24 @@ class EodhdAdapter(ChainAdapter):
     name = "eodhd"
 
     def __init__(self, api_token: str | None = None, *, exchange: str = "US",
+                 oi_lag_days: int = 1,
                  options_url: str = _OPTIONS_URL, eod_url: str = _EOD_URL):
         import os
 
         self.api_token = api_token or os.environ.get("EODHD_API_TOKEN")
         self.exchange = exchange
+        # Business-day lag stamped into oi_asof_date (see module docstring, F1).
+        # 1 = standard "OI is prior session"; 0 = same-session (only if verified).
+        self.oi_lag_days = oi_lag_days
         self.options_url = options_url
         self.eod_url = eod_url
+
+    def _oi_asof_date(self, quote_date: date):
+        """The session the open interest is assumed as-of (quote_date - lag BDays)."""
+        if self.oi_lag_days <= 0:
+            return quote_date
+        stamped = pd.Timestamp(quote_date) - pd.tseries.offsets.BusinessDay(self.oi_lag_days)
+        return stamped.date()
 
     # ---- live I/O (integration-tested with a real token) ------------------ #
 
@@ -147,6 +175,7 @@ class EodhdAdapter(ChainAdapter):
                 "cannot set required underlying_price")
 
         quote_ts = _session_close_utc(quote_date)
+        oi_asof = self._oi_asof_date(quote_date)  # assumed OI session (F1); see docstring
         rows = []
         for rec in records:
             opt_type = str(rec.get("type", "")).lower()
@@ -161,7 +190,7 @@ class EodhdAdapter(ChainAdapter):
                 "ask": _num(rec.get("ask")),
                 "last": _num(rec.get("last")),
                 "open_interest": _int(rec.get("open_interest")),
-                "oi_asof_date": None,  # undisclosed -> null == "treat as T-1" (schema)
+                "oi_asof_date": oi_asof,
                 "volume": _int(rec.get("volume")),
                 "iv": _num(rec.get("volatility")),
                 "delta": _num(rec.get("delta")),
@@ -181,7 +210,17 @@ class EodhdAdapter(ChainAdapter):
         df["oi_asof_date"] = pd.to_datetime(df["oi_asof_date"])
         scalar = {k: v for k, v in pandas_dtypes().items()
                   if k not in ("quote_ts", "expiration", "oi_asof_date")}
-        return df.astype(scalar)
+        df = df.astype(scalar)
+
+        # Drop duplicate contracts (e.g. from overlapping pagination) rather than
+        # silently double-counting OI/GEX downstream. Loud, because it should not
+        # happen (F5).
+        before = len(df)
+        df = df.drop_duplicates(subset=list(PRIMARY_KEY), keep="last").reset_index(drop=True)
+        if len(df) < before:
+            _log.warning("EODHD %s %s: dropped %d duplicate contract row(s)",
+                         symbol.upper(), quote_date.isoformat(), before - len(df))
+        return df
 
 
 __all__ = ["EodhdAdapter"]

@@ -21,12 +21,11 @@ iv_vol_hi = 5.0            # IV solve bracket, upper bound
 [costs]
 commission_per_trade = 0.0
 slippage_bps = 1.0
-half_spread_cost = false
+half_spread_bps = 0.0            # half the quoted spread, bps on traded notional
 
 [backtest]
 initial_capital = 100000.0
-fill_timing = "next_bar_open"
-allow_same_bar_fill = false   # no same-bar-close fills on the signal bar
+allow_same_bar_fill = false     # false => fill at next bar's open (no lookahead)
 base_currency = "USD"
 
 [metrics]

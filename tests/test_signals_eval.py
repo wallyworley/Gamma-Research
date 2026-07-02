@@ -126,19 +126,33 @@ class TestCostSweep(unittest.TestCase):
 
 @unittest.skipUnless(_HAVE_STACK, "pandas not installed")
 class TestScorecard(unittest.TestCase):
-    def test_scorecard_end_to_end(self):
+    def test_scorecard_shape_and_timing_skill(self):
         from src.eval import scorecard
         from src.signals import regime_series, regime_signal
         card = scorecard(_bars(), regime_signal(_chains(), long=1.0, short=0.0),
-                         regimes=regime_series(_chains()))
+                         regimes=regime_series(_chains()), n_controls=100, bootstrap_n=200)
         self.assertEqual(len(card["config_hash"]), 16)
-        for key in ("strategy", "buy_and_hold_return", "random_entry_return",
-                    "beats_buy_and_hold", "beats_random_entry", "regime_attribution"):
+        for key in ("strategy", "strategy_sharpe", "strategy_mean_bar_return",
+                    "bootstrap_mean_ci_95", "buy_and_hold_return", "excess_vs_buy_and_hold",
+                    "random_control", "regime_attribution"):
             self.assertIn(key, card)
-        # The rule goes long into the +GEX up-bar and flat into the -GEX down-bar,
-        # so it should beat both buy-and-hold and the random control here.
-        self.assertTrue(card["beats_buy_and_hold"])
-        self.assertTrue(card["beats_random_entry"])
+        # No naked beats_* booleans anymore.
+        self.assertNotIn("beats_random_entry", card)
+        # The rule times the single +GEX up-bar, so it beats B&H and most controls.
+        self.assertGreater(card["excess_vs_buy_and_hold"], 0.0)
+        self.assertGreater(card["random_control"]["strategy_percentile"], 0.5)
+
+    def test_exposure_matched_control_denies_free_beta(self):
+        # F3: an informationless always-long signal must NOT trivially beat the
+        # control on a drifting-up market, because the control is exposure-matched
+        # to it (both ~always in). Old prob=0.5 control was beaten in 20/20 seeds.
+        from src.eval import scorecard
+        up = pd.DataFrame({"open": [100.0, 105.0, 110.0], "close": [105.0, 110.0, 115.0]},
+                          index=_DATES)
+        always_long = pd.Series({d: 1.0 for d in _DATES})
+        card = scorecard(up, always_long, n_controls=100, bootstrap_n=100)
+        self.assertAlmostEqual(card["random_control"]["exposure_matched_prob"], 1.0)
+        self.assertLessEqual(card["random_control"]["strategy_percentile"], 0.5)
 
 
 if __name__ == "__main__":

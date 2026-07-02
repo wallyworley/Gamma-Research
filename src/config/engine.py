@@ -52,7 +52,7 @@ class CostConfig:
 
     commission_per_trade: float = 0.0
     slippage_bps: float = 1.0
-    half_spread_cost: bool = False     # charge half the quoted spread on fills
+    half_spread_bps: float = 0.0       # half the quoted spread, in bps on traded notional
 
 
 @dataclass(frozen=True)
@@ -61,8 +61,9 @@ class BacktestConfig:
     never fill same-bar-close on the signal bar (docs section 7 "Fills")."""
 
     initial_capital: float = 100_000.0
-    fill_timing: str = "next_bar_open"
-    allow_same_bar_fill: bool = False  # guard against same-bar lookahead fills
+    # allow_same_bar_fill=False => decide at bar t's close, fill at t+1's open (the
+    # no-lookahead default). True fills at t's own close (look-ahead; comparison only).
+    allow_same_bar_fill: bool = False
     base_currency: str = "USD"
 
 

@@ -3,7 +3,7 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-01 (M5 signal layer + evaluation harness; M0-M4 done).
+Last updated: 2026-07-02 (review-hardening phase 1: fable must-fix set F1/F2/F5/F6/F8/F3; M0-M5 done).
 
 ## What this repo is
 
@@ -151,6 +151,30 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
   baselines on a favorable synthetic scenario. **93 tests total, all green** (66 skip without the data
   stack; passes under `-W error::DeprecationWarning`).
 
+### Review hardening - phase 1 (fable code+model review, must-fix set) - branch `phase1-review-hardening`
+A comparable model (fable) reviewed the whole codebase (prompt: `prompts/code_review_prompt.md`,
+builder: `scripts/build_code_review_prompt.py`). Full findings F1-F21. This branch fixes the must-fix
+set; the rest are queued for later phases (see below).
+- **F5** (silent double-count): `validate_records`/`validate_frame` now reject duplicate `PRIMARY_KEY`
+  rows; `EodhdAdapter.normalize` de-dups with a loud `logging.warning`.
+- **F6** (dead config): removed `fill_timing` (was ignored; `allow_same_bar_fill` is the real knob);
+  `half_spread_cost: bool` -> `half_spread_bps: float`, now **wired** into the backtester cost. No more
+  config-hash-changing-with-no-effect.
+- **F1** (OI timing lie): deleted the false "the backtester/metric engine aligns OI T-1" docstrings.
+  `EodhdAdapter` now **stamps `oi_asof_date`** (default prior business day, `oi_lag_days=1`), a documented
+  UNVERIFIED assumption. Nothing shifts OI across time; the metric docstrings now say so.
+- **F8** (incoherent composite): `grade_proxy` `score_proxy` is **quarantined** - `None` unless
+  `enable_composite=True`; the 5 descriptive components are always returned; `oi_proximity` relabeled a
+  non-directional pin-strength feature.
+- **F3** (scorecard launders beta): replaced the naked `beats_*` booleans with an **exposure-matched**
+  random control (matched to the strategy's realized exposure), a `strategy_percentile`, a bootstrap
+  mean-return CI, and a Sharpe. New test proves an always-long signal no longer trivially beats the
+  control.
+- **F2** (chain completeness): can't be verified without a live token (demo returns AAPL sample only);
+  added a prominent UNVERIFIED caveat in the adapter docstring with the exact A/B check to run.
+- **100 tests, all green** (`.venv/bin/python -m unittest discover -s tests`; passes under
+  `-W error::DeprecationWarning`).
+
 ### Two validation passes already incorporated
 1. Round 1 (claims-only; reviewer couldn't see the docs) - fixed GEX formula framing (share vs
    dollar-per-1%-move), Polygon history (~2014 trades/aggs), ORATS 1-min (Aug 2020), Alpha Vantage
@@ -164,13 +188,25 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
 
 ## Open threads / next steps
 
-- **On GitHub (`origin`, default `main`):** M0/M1 (#1), M2 (#3), M3 (#4), M4 (#5) are all **merged to
-  `main`**. M5 is on branch `phase1-m5-signals-eval` (PR #6, base `main`). Recreate the env with
+- **On GitHub (`origin`, default `main`):** M0-M5 are all **merged to `main`** (PRs #1,#3,#4,#5,#6).
+  Review-hardening phase 1 is on branch `phase1-review-hardening` (PR pending). Recreate the env with
   `python3 -m venv .venv && .venv/bin/pip install -r requirements.lock.txt`; run `.venv/bin/python -m
   unittest discover -s tests -v`.
-- **M0 - M5 done. The offline research engine is functionally complete end-to-end**
-  (vendor adapter -> canonical parquet -> metrics/proxies -> signal -> point-in-time backtest ->
-  scorecard vs baselines), all on synthetic/fixture data with 93 passing tests.
+- **M0 - M5 done + review-hardening phase 1** (fable must-fix set). The offline engine is functionally
+  complete end-to-end (adapter -> canonical parquet -> metrics/proxies -> signal -> point-in-time
+  backtest -> significance scorecard), 100 passing tests on synthetic/fixture data.
+- **Review loop:** the workflow is - implement a batch of fable findings -> have fable re-review the
+  branch -> next batch. Re-review by spawning a general-purpose agent on model `fable`, read-only,
+  pointed at `prompts/code_review_prompt.md` (see that file's `## PROMPT` section).
+- **Remaining fable findings (next phases), roughly by priority:** F4 (test the volatility channel,
+  not close-to-close direction) and F2-live (verify chain completeness with a token) are gating for
+  real conclusions; then F9 (attribution overnight-gap misattribution), F10 (ZeroGEX grid -> hashed
+  config, distinguish "no flip on grid" from "no flip"), F11 (dealer-sign sensitivity sweep + note net
+  DEX is structurally signed), F12 (schema plausibility bounds: gamma>=0, |delta|<=1, iv in (0,5];
+  greek-coverage stat), F13 (regime vs ZeroGEX gamma-source disagreement flag), F7/F17 (loud errors on
+  empty target-intersection and multi-snapshot frames), F14/F15 (rebalance band; short/borrow model +
+  weight-range guard), plus F18-F21 cleanups. Full list + evidence in the review (and reproducible via
+  the fable re-review).
 - **What's left to run it for real (needs a live `EODHD_API_TOKEN`):**
   1. Build `bars` (open/close) from the EODHD stock EOD call (already returns OHLC) - a thin adapter
      step; then pull a range of daily chains + underlying closes for one symbol.

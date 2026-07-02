@@ -65,7 +65,8 @@ def _simulate(bars: pd.DataFrame, target: pd.Series, cfg: EngineConfig,
     timestamps = list(bars.index)
     same_bar = cfg.backtest.allow_same_bar_fill
     commission = cfg.costs.commission_per_trade if apply_costs else 0.0
-    slip = (cfg.costs.slippage_bps / 1e4) if apply_costs else 0.0
+    # slippage and half-spread are both bps on traded notional; combine.
+    bps = ((cfg.costs.slippage_bps + cfg.costs.half_spread_bps) / 1e4) if apply_costs else 0.0
 
     cash = float(cfg.backtest.initial_capital)
     shares = 0.0
@@ -89,7 +90,7 @@ def _simulate(bars: pd.DataFrame, target: pd.Series, cfg: EngineConfig,
             target_shares = float(tgt) * equity_at_fill / fill_px
             delta = target_shares - shares
             if abs(delta) > _EPS_SHARES:
-                cost = commission + slip * abs(delta) * fill_px
+                cost = commission + bps * abs(delta) * fill_px
                 cash -= delta * fill_px + cost
                 shares = target_shares
                 trades.append({

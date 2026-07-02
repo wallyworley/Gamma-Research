@@ -16,6 +16,15 @@ our documented convention):
 
 Score = 10 * sum(weight_i * component_i), weights normalized to sum to 1, so the
 output is always in [0, 10]. Weights are published defaults, overridable per call.
+
+**QUARANTINED (review finding F8).** The composite is uncalibrated: the weights and
+the tanh/proximity constants are hand-picked, and the "higher = more bullish/stable"
+direction is unvalidated and demonstrably incoherent for `oi_proximity` - spot
+collapsing onto the put wall RAISES the score. So `score_proxy` is `None` unless you
+pass `enable_composite=True`, and even then it is a research toy, not a signal. The
+five `components` are individually interpretable and are always returned; prefer
+them. `oi_proximity` is a non-directional pin-strength feature (nearness to any wall),
+not a bullish signal. Do not consume the composite until it is calibrated to outcomes.
 """
 
 from __future__ import annotations
@@ -50,19 +59,27 @@ def _clamp01(x: float) -> float:
 
 @dataclass(frozen=True)
 class GradeProxy:
-    """Owned composite structural score in [0, 10] plus its component breakdown."""
+    """Descriptive components (always) plus the quarantined composite score.
 
-    score_proxy: float
+    ``score_proxy`` is None unless ``enable_composite=True`` was requested (F8).
+    """
+
+    score_proxy: float | None
     components: dict
 
 
 def grade_proxy(df: pd.DataFrame, *, config: EngineConfig | None = None,
                 gex_ratio_percentile: float | None = None,
-                weights: dict | None = None) -> GradeProxy:
-    """Compute the GammaEdge-inspired proxy grade for one chain snapshot."""
+                weights: dict | None = None,
+                enable_composite: bool = False) -> GradeProxy:
+    """Compute the descriptive grade components (and, if enabled, the composite).
+
+    The composite `score_proxy` is quarantined (F8): it stays None unless
+    ``enable_composite=True``. The five components are always returned.
+    """
     cfg = resolve_config(config)
     if df.empty:
-        return GradeProxy(score_proxy=float("nan"), components={})
+        return GradeProxy(score_proxy=None, components={})
 
     spot = float(df["underlying_price"].iloc[0])
     gex = contract_gex(df, config=cfg)
@@ -92,11 +109,13 @@ def grade_proxy(df: pd.DataFrame, *, config: EngineConfig | None = None,
         "gex_ratio_pct": ratio_score,
         "delta_skew": skew_score,
         "dist_zerogex": dist_score,
-        "oi_proximity": prox_score,
+        "oi_proximity": prox_score,   # non-directional pin strength (F8)
     }
-    w = {**DEFAULT_WEIGHTS, **(weights or {})}
-    total_w = sum(w[k] for k in components)
-    score = 10.0 * sum(w[k] * components[k] for k in components) / total_w
+    score = None
+    if enable_composite:
+        w = {**DEFAULT_WEIGHTS, **(weights or {})}
+        total_w = sum(w[k] for k in components)
+        score = 10.0 * sum(w[k] * components[k] for k in components) / total_w
     return GradeProxy(score_proxy=score, components=components)
 
 

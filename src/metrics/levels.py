@@ -14,7 +14,8 @@ Grounded in the terms doc:
     resistance). GammaEdge's exact rolling window/weighting is unpublished; this
     is a transparent per-strike-dominance baseline.
 
-OI is used as reported; T-1 alignment is the backtester's job (M4).
+OI is used exactly as it arrives on the snapshot (carrying the adapter's stamped
+`oi_asof_date`); no layer shifts OI across time (F1).
 """
 
 from __future__ import annotations
