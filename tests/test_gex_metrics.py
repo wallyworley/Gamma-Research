@@ -187,5 +187,82 @@ class TestEmptyChain(unittest.TestCase):
         self.assertIsNone(zero_gex(empty))
 
 
+@unittest.skipUnless(_HAVE_STACK, "numpy/pandas not installed")
+class TestSnapshotRigor(unittest.TestCase):
+    def _chain(self):
+        return mini_chain([
+            {"type": "call", "strike": 100, "gamma": 0.05, "open_interest": 1000, "iv": 0.2},
+            {"type": "put",  "strike": 100, "gamma": 0.04, "open_interest": 2000, "iv": 0.2},
+        ], spot=100.0)
+
+    def test_multi_snapshot_rejected(self):
+        # F17: a frame carrying two distinct quote_ts (two days concatenated) must be
+        # rejected, not silently mixed. The guard fires on symbol/quote_ts first.
+        from src.metrics import gamma_snapshot
+        two_days = pd.DataFrame({
+            "symbol": ["T", "T"],
+            "quote_ts": pd.to_datetime(["2024-06-03T20:00", "2024-06-04T20:00"], utc=True),
+        })
+        with self.assertRaises(ValueError):
+            gamma_snapshot(two_days)
+
+    def test_gamma_snapshot_flags(self):
+        # F10 + F13: the snapshot carries the grid-hit and gamma-source-agreement flags.
+        from src.metrics import gamma_snapshot
+        snap = gamma_snapshot(self._chain())
+        self.assertIsInstance(snap.zero_gex_in_grid, bool)
+        self.assertIsInstance(snap.gamma_source_agrees, bool)
+
+    def test_gamma_source_disagreement_flagged(self):
+        # F13: vendor gamma (put-dominated, so -GEX) vs BS gamma at spot (ATM call
+        # dominates, deep-OTM put ~0, so positive) disagree -> flag is False.
+        from src.metrics import gamma_snapshot
+        exp = dt.date(2024, 7, 3)
+        df = mini_chain([
+            {"type": "call", "strike": 100, "gamma": 0.01, "open_interest": 1000, "iv": 0.2, "expiration": exp},
+            {"type": "put",  "strike": 60,  "gamma": 0.90, "open_interest": 1000, "iv": 0.2, "expiration": exp},
+        ], spot=100.0)
+        snap = gamma_snapshot(df)
+        self.assertEqual(snap.regime, "-GEX")          # vendor gamma -> put-dominated
+        self.assertFalse(snap.gamma_source_agrees)     # BS gamma at spot disagrees
+
+    def test_net_gex_rejects_multi_snapshot(self):
+        # F17 (fable follow-up): net_gex / zero_gex must guard too, not just the
+        # composite entry points.
+        from src.metrics import net_gex, zero_gex
+        two_days = pd.DataFrame({
+            "symbol": ["T", "T"],
+            "quote_ts": pd.to_datetime(["2024-06-03T20:00", "2024-06-04T20:00"], utc=True),
+        })
+        with self.assertRaises(ValueError):
+            net_gex(two_days)
+        with self.assertRaises(ValueError):
+            zero_gex(two_days)
+
+    def test_zerogex_grid_from_config(self):
+        # F10: a grid that doesn't span the flip -> None + zero_gex_in_grid False,
+        # and the grid comes from (hashed) config, not a hard-coded kwarg.
+        from src.config import EngineConfig
+        from src.metrics import gamma_snapshot
+        exp = dt.date(2024, 7, 3)
+        df = mini_chain([
+            {"type": "put",  "strike": 90,  "open_interest": 1000, "iv": 0.2, "expiration": exp},
+            {"type": "call", "strike": 110, "open_interest": 1000, "iv": 0.2, "expiration": exp},
+        ], spot=100.0)
+        cfg = EngineConfig.from_dict({"metrics": {  # grid entirely above spot; flip is below
+            "zerogex_grid_lo_frac": 1.05, "zerogex_grid_hi_frac": 1.10, "zerogex_grid_n": 11}})
+        snap = gamma_snapshot(df, config=cfg)
+        self.assertIsNone(snap.zero_gex)
+        self.assertFalse(snap.zero_gex_in_grid)
+
+    def test_greek_coverage(self):
+        # F12: coverage stat over open interest.
+        from src.metrics import greek_coverage
+        cov = greek_coverage(self._chain())
+        self.assertEqual(cov["n_contracts"], 2)
+        self.assertEqual(cov["oi_total"], 3000.0)
+        self.assertAlmostEqual(cov["oi_gamma_frac"], 1.0)   # both carry nonzero gamma
+
+
 if __name__ == "__main__":
     unittest.main()

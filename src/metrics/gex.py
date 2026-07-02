@@ -33,6 +33,7 @@ from ._common import (
     CONTRACT_SIZE,
     dealer_signs,
     dollar_factor,
+    require_single_snapshot,
     resolve_config,
 )
 from .blackscholes import bs_gamma
@@ -60,6 +61,7 @@ def contract_gex(df: pd.DataFrame, *, config: EngineConfig | None = None,
 
 def net_gex(df: pd.DataFrame, *, config: EngineConfig | None = None, spot=None) -> float:
     """Aggregate signed GEX over the whole chain (dealer-signed)."""
+    require_single_snapshot(df)
     if df.empty:
         return 0.0
     return float(contract_gex(df, config=config, spot=spot).sum())
@@ -67,6 +69,7 @@ def net_gex(df: pd.DataFrame, *, config: EngineConfig | None = None, spot=None) 
 
 def gex_by_strike(df: pd.DataFrame, *, config: EngineConfig | None = None) -> pd.Series:
     """Signed GEX summed per strike (across calls, puts, expirations), sorted."""
+    require_single_snapshot(df)
     gex = contract_gex(df, config=config)
     return gex.groupby(df["strike"]).sum().sort_index()
 
@@ -92,18 +95,17 @@ def _years_to_expiry(df: pd.DataFrame, day_count: str) -> np.ndarray:
     return days / denom
 
 
-def zero_gex(df: pd.DataFrame, *, config: EngineConfig | None = None,
-             lo_frac: float = 0.7, hi_frac: float = 1.3, n: int = 121) -> float | None:
-    """Spot where Net GEX crosses zero (the gamma flip), or None if no crossing.
+def _zero_gex_detail(df: pd.DataFrame, cfg: EngineConfig) -> dict:
+    """Internal: ZeroGEX flip plus the grid it searched and the BS net at spot.
 
-    Recomputes each option's gamma via Black-Scholes at candidate spots over a
-    grid around the current spot, forms Net GEX(S), and linearly interpolates the
-    sign change nearest to spot. Contracts without a positive T, sigma (iv), and
-    open interest cannot be repriced and are excluded.
+    Recomputes each option's gamma via Black-Scholes at candidate spots over the
+    config grid, forms Net GEX(S), and interpolates the sign change nearest spot.
+    Contracts without a positive T, sigma (iv), and open interest are excluded.
     """
-    cfg = resolve_config(config)
+    lo, hi, n = (cfg.metrics.zerogex_grid_lo_frac, cfg.metrics.zerogex_grid_hi_frac,
+                 cfg.metrics.zerogex_grid_n)
     if df.empty:
-        return None
+        return {"flip": None, "grid_lo": None, "grid_hi": None, "bs_net_at_spot": None, "priced": 0}
 
     spot0 = float(df["underlying_price"].iloc[0])
     signs = dealer_signs(df, cfg.metrics.dealer_sign_convention)
@@ -114,7 +116,8 @@ def zero_gex(df: pd.DataFrame, *, config: EngineConfig | None = None,
 
     keep = (T > 0) & (sigma > 0) & (oi > 0)
     if not keep.any():
-        return None
+        return {"flip": None, "grid_lo": spot0 * lo, "grid_hi": spot0 * hi,
+                "bs_net_at_spot": None, "priced": 0}
     signs, K, sigma, oi, T = signs[keep], K[keep], sigma[keep], oi[keep], T[keep]
 
     r, q = cfg.pricer.risk_free_rate, cfg.pricer.dividend_yield
@@ -125,10 +128,9 @@ def zero_gex(df: pd.DataFrame, *, config: EngineConfig | None = None,
         factor = (s * s * 0.01) if is_dollar else 1.0
         return float(np.sum(signs * gamma_s * oi * CONTRACT_SIZE * factor))
 
-    grid = np.linspace(spot0 * lo_frac, spot0 * hi_frac, n)
+    grid = np.linspace(spot0 * lo, spot0 * hi, n)
     nets = np.array([net_at(s) for s in grid])
 
-    # Linear-interpolate every sign change; return the crossing nearest spot0.
     crossings: list[float] = []
     for i in range(len(grid) - 1):
         a, b = nets[i], nets[i + 1]
@@ -138,9 +140,21 @@ def zero_gex(df: pd.DataFrame, *, config: EngineConfig | None = None,
             crossings.append(float(grid[i] - a * (grid[i + 1] - grid[i]) / (b - a)))
     if nets[-1] == 0.0:
         crossings.append(float(grid[-1]))
-    if not crossings:
-        return None
-    return min(crossings, key=lambda s: abs(s - spot0))
+    flip = min(crossings, key=lambda s: abs(s - spot0)) if crossings else None
+    return {"flip": flip, "grid_lo": float(grid[0]), "grid_hi": float(grid[-1]),
+            "bs_net_at_spot": net_at(spot0), "priced": int(len(K))}
+
+
+def zero_gex(df: pd.DataFrame, *, config: EngineConfig | None = None) -> float | None:
+    """Spot where Net GEX crosses zero (the gamma flip), via a BS-gamma recompute.
+
+    Returns the crossing nearest spot, or None. **None means "no crossing within
+    the searched grid"** (config `metrics.zerogex_grid_*`), NOT a proof that no
+    flip exists - the true flip may lie outside the grid. See `gamma_snapshot`,
+    which exposes `zero_gex_in_grid` and the search range.
+    """
+    require_single_snapshot(df)
+    return _zero_gex_detail(df, resolve_config(config))["flip"]
 
 
 @dataclass(frozen=True)
@@ -151,14 +165,27 @@ class GexSnapshot:
     regime: str
     zero_gex: float | None
     spot: float
+    zero_gex_in_grid: bool        # F10: True if a flip was found inside the searched grid
+    gamma_source_agrees: bool     # F13: vendor-gamma regime and BS-gamma sign at spot agree
 
 
 def gamma_snapshot(df: pd.DataFrame, *, config: EngineConfig | None = None) -> GexSnapshot:
-    """Compute Net GEX, regime, and ZeroGEX for one validated chain snapshot."""
-    net = net_gex(df, config=config)
+    """Compute Net GEX, regime, and ZeroGEX for one validated chain snapshot.
+
+    Flags two consistency facts: whether the flip was found inside the search grid
+    (F10) and whether the vendor-gamma regime agrees in sign with the BS-gamma net
+    at spot (F13) - a disagreement means the (regime, zero_gex) pair is internally
+    inconsistent and should be treated with caution.
+    """
+    require_single_snapshot(df)
+    cfg = resolve_config(config)
+    net = net_gex(df, config=cfg)
     spot = float(df["underlying_price"].iloc[0]) if not df.empty else float("nan")
-    return GexSnapshot(net_gex=net, regime=regime(net),
-                       zero_gex=zero_gex(df, config=config), spot=spot)
+    detail = _zero_gex_detail(df, cfg)
+    bs_at_spot = detail["bs_net_at_spot"]
+    agrees = True if (bs_at_spot is None or net == 0.0) else ((net > 0) == (bs_at_spot > 0))
+    return GexSnapshot(net_gex=net, regime=regime(net), zero_gex=detail["flip"], spot=spot,
+                       zero_gex_in_grid=(detail["flip"] is not None), gamma_source_agrees=agrees)
 
 
 __all__ = [

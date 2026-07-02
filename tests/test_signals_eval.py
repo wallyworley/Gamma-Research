@@ -98,17 +98,24 @@ class TestBaselines(unittest.TestCase):
 
 @unittest.skipUnless(_HAVE_STACK, "pandas not installed")
 class TestAttribution(unittest.TestCase):
-    def test_regime_attribution_golden(self):
+    def test_regime_attribution_splits_overnight_gap(self):
+        # F9: the overnight gap must be booked to the regime that HELD the position
+        # across it, not to the current bar's regime. Long decided at d0 (+GEX) is
+        # held through d1's session AND the overnight into d2; at d2's open the
+        # -GEX-driven exit fills. So the -1.82% overnight gap into d2 belongs to
+        # +GEX, and -GEX (flat that session) earns ~0 - not the -1.82%.
         from src.eval import regime_attribution
-        eq = pd.Series([100.0, 110.0, 99.0], index=_DATES)   # returns: +0.10, -0.10
-        regimes = pd.Series({_DATES[0]: "+GEX", _DATES[1]: "-GEX", _DATES[2]: "+GEX"})
-        attr = regime_attribution(eq, regimes)
-        # bar d1 return (+0.10) driven by d0 regime (+GEX); bar d2 return (-0.10) by d1 (-GEX).
-        self.assertEqual(attr["+GEX"]["n_bars"], 1)
-        self.assertAlmostEqual(attr["+GEX"]["total_return"], 0.10)
-        self.assertEqual(attr["-GEX"]["n_bars"], 1)
-        self.assertAlmostEqual(attr["-GEX"]["total_return"], -0.10)
-        self.assertEqual(attr["flat"]["n_bars"], 0)
+        bars = pd.DataFrame({"open": [100.0, 105.0, 108.0], "close": [100.0, 110.0, 108.0]},
+                            index=_DATES)
+        target = pd.Series({_DATES[0]: 1.0, _DATES[1]: 0.0, _DATES[2]: 0.0})
+        regimes = pd.Series({_DATES[0]: "+GEX", _DATES[1]: "-GEX", _DATES[2]: "flat"})
+        attr = regime_attribution(bars, target, regimes)
+        # +GEX: intraday d1 (110/105-1) + overnight into d2 (108/110-1).
+        self.assertAlmostEqual(attr["+GEX"]["pnl_contribution"], (110/105 - 1) + (108/110 - 1))
+        self.assertEqual(attr["+GEX"]["n_periods"], 2)
+        # -GEX drove only the flat d2 session -> ~0, NOT the overnight loss.
+        self.assertAlmostEqual(attr["-GEX"]["pnl_contribution"], 0.0)
+        self.assertEqual(attr["flat"]["n_periods"], 0)
 
 
 @unittest.skipUnless(_HAVE_STACK, "pandas not installed")

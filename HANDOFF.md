@@ -3,7 +3,7 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-02 (Cboe adapter: engine now runs on REAL options data, free; M0-M5 + hardening done).
+Last updated: 2026-07-02 (Cboe real-data adapter + phase-2 code-rigor batch F7/F9/F10/F12/F13/F15/F17/F18).
 
 ## What this repo is
 
@@ -214,6 +214,25 @@ or upgrading the existing **EODHD** account ($39.99/mo, ~Q4 2023+). Cheapest bro
 future platform = **Polygon.io** (~$29/mo: stocks/options/forex/crypto). **IBKR** (account on hand)
 is the future *live/forward + execution* layer, not a historical-backtest source. `.env` holds the
 (valid, free-tier) EODHD token; it works for stock EOD and will unlock options if upgraded.
+
+### Phase 2 code-rigor batch (more fable findings) - branch `phase2-code-rigor`
+- **F9** `regime_attribution` now splits each bar into intraday (regime[t-1]) and overnight
+  (regime[t-2]) so the overnight gap is booked to the regime that actually held the position; returns
+  `pnl_contribution`/`n_periods` per bucket. Signature is now `(bars, target, regimes)`; scorecard updated.
+- **F10** ZeroGEX search grid moved into hashed `MetricsConfig` (`zerogex_grid_lo_frac/hi_frac/n`);
+  `zero_gex` returns None = "no crossing in the searched grid" (not "no flip exists"); `gamma_snapshot`
+  exposes `zero_gex_in_grid`.
+- **F13** `gamma_snapshot.gamma_source_agrees` flags when the vendor-gamma regime and the BS-gamma net
+  at spot disagree in sign (internally inconsistent snapshot).
+- **F12** `greek_coverage(df)` reports the share of OI backed by usable gamma/IV (live AAPL: 95.8%
+  gamma, 486 iv=0 rows) - so a metric's trustworthiness is visible.
+- **F17** `require_single_snapshot` guards every snapshot metric (net_gex/gamma_snapshot, DEX, ratios,
+  levels, grade) against a silently-concatenated multi-day/multi-symbol frame.
+- **F7/F15** backtester rejects a target whose index doesn't intersect bars (silent zero-trade) and a
+  weight outside [-1, 1] (leverage/typo).
+- **F18** deleted `moneyness_levels` dead locals.
+- **128 tests, all green** (`-W error::DeprecationWarning`). Deferred: F14 (rebalance band), F11
+  (dealer-sign sweep), F19/F20/F21 (minor), plus F12 hard plausibility bounds (calibrate vs real data).
 
 ### Two validation passes already incorporated
 1. Round 1 (claims-only; reviewer couldn't see the docs) - fixed GEX formula framing (share vs

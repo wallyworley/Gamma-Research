@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from ..config import EngineConfig
-from ._common import CONTRACT_SIZE, dealer_signs, resolve_config
+from ._common import CONTRACT_SIZE, dealer_signs, require_single_snapshot, resolve_config
 
 
 def contract_dex(df: pd.DataFrame, *, config: EngineConfig | None = None,
@@ -53,6 +53,7 @@ class DexBalance:
 
 def dealer_delta_balance(df: pd.DataFrame, *, config: EngineConfig | None = None) -> DexBalance:
     """Aggregate DEX split into above-spot / below-spot / at-spot buckets."""
+    require_single_snapshot(df)
     if df.empty:
         return DexBalance(0.0, 0.0, 0.0, 0.0)
     dex = contract_dex(df, config=config)

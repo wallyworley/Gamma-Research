@@ -21,26 +21,38 @@ from .baselines import permutation_control, random_entry_control
 _REGIMES = ("+GEX", "-GEX", "flat")
 
 
-def regime_attribution(net_equity: pd.Series, regimes: pd.Series) -> dict:
-    """Break per-bar strategy returns out by the gamma regime that drove them.
+def regime_attribution(bars: pd.DataFrame, target_position, regimes: pd.Series) -> dict:
+    """Attribute the strategy's PnL to the regime that drove the position held.
 
-    The return earned over bar t is attributed to the regime observed at bar t-1
-    (the signal live when the position was set, given next-open fills). This is a
-    documented approximation, not an exact per-trade P&L split.
+    Splits each bar's move so the overnight gap is booked to the right regime (F9):
+    during bar t (open->close) the position is target[t-1] (filled at t's open),
+    driven by regime[t-1]; the overnight move (t-1 close -> t open) is still held at
+    target[t-2], driven by regime[t-2]. Booking the whole close-to-close return to
+    regime[t-1] - the old behavior - misattributes the overnight gap exactly at
+    regime flips, which is where attribution matters most.
+
+    Per bucket: `pnl_contribution` (summed position*return contributions attributed
+    to that regime, an additive simple-return decomposition) and `n_periods`.
     """
-    rets = net_equity.pct_change().dropna()
-    driving = regimes.shift(1).reindex(rets.index)
+    idx = bars.index
+    o = bars["open"].astype("float64")
+    c = bars["close"].astype("float64")
+    w = pd.Series(target_position).reindex(idx).ffill().fillna(0.0)   # decided at each bar's close
+    reg = pd.Series(regimes).reindex(idx)
+
+    intraday = (w.shift(1) * (c / o - 1.0)).fillna(0.0)               # bar t session; regime[t-1]
+    overnight = (w.shift(2) * (o / c.shift(1) - 1.0)).fillna(0.0)     # overnight into t; regime[t-2]
+    reg_intraday = reg.shift(1)
+    reg_overnight = reg.shift(2)
+
     out: dict = {}
     for bucket in _REGIMES:
-        r = rets[driving == bucket]
-        if len(r) == 0:
-            out[bucket] = {"n_bars": 0, "mean_return": float("nan"), "total_return": 0.0}
-        else:
-            out[bucket] = {
-                "n_bars": int(len(r)),
-                "mean_return": float(r.mean()),
-                "total_return": float((1.0 + r).prod() - 1.0),
-            }
+        mi = reg_intraday == bucket
+        mo = reg_overnight == bucket
+        out[bucket] = {
+            "pnl_contribution": float(intraday[mi].sum() + overnight[mo].sum()),
+            "n_periods": int(mi.sum() + mo.sum()),
+        }
     return out
 
 
@@ -172,7 +184,7 @@ def scorecard(bars: pd.DataFrame, target_position, *, config: EngineConfig | Non
         },
     }
     if regimes is not None:
-        card["regime_attribution"] = regime_attribution(result.net_equity, regimes)
+        card["regime_attribution"] = regime_attribution(bars, target_position, regimes)
     return card
 
 

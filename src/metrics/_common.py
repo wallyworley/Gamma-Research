@@ -48,4 +48,44 @@ def dollar_factor(spot, gex_convention: str):
     raise ValueError(f"unknown gex_convention {gex_convention!r}; known: dollar_per_1pct, shares")
 
 
-__all__ = ["CONTRACT_SIZE", "DEALER_SIGNS", "resolve_config", "dealer_signs", "dollar_factor"]
+def require_single_snapshot(df: pd.DataFrame) -> None:
+    """Guard: a snapshot metric expects ONE (symbol, quote_ts). A concatenated
+    multi-day / multi-symbol frame (an easy `pd.concat` mistake) would silently
+    mix snapshots and compute nonsense - fail loudly instead (F17)."""
+    if df.empty:
+        return
+    n_sym = df["symbol"].nunique()
+    n_ts = df["quote_ts"].nunique()
+    if n_sym > 1 or n_ts > 1:
+        raise ValueError(
+            f"snapshot metric expects a single (symbol, quote_ts); got {n_sym} symbol(s) x "
+            f"{n_ts} timestamp(s). Slice to one snapshot before computing.")
+
+
+def greek_coverage(df: pd.DataFrame) -> dict:
+    """Data-quality summary for a snapshot (F12): the share of open interest backed
+    by usable greeks/IV. A GEX/ZeroGEX computed where coverage is low is only as
+    trustworthy as the fraction of OI that actually carried greeks.
+    """
+    if df.empty:
+        return {"n_contracts": 0, "oi_total": 0.0, "oi_gamma_frac": float("nan"),
+                "oi_iv_frac": float("nan"), "n_iv_zero": 0}
+    oi = df["open_interest"].astype("float64").fillna(0.0)
+    gamma = df["gamma"].astype("float64")
+    iv = df["iv"].astype("float64")
+    total = float(oi.sum())
+
+    def frac(mask) -> float:
+        return (float(oi[mask].sum()) / total) if total > 0 else float("nan")
+
+    return {
+        "n_contracts": int(len(df)),
+        "oi_total": total,
+        "oi_gamma_frac": frac(gamma.notna() & (gamma.abs() > 0)),  # OI share with nonzero gamma
+        "oi_iv_frac": frac(iv.notna() & (iv > 0)),                 # OI share with iv > 0
+        "n_iv_zero": int((iv.fillna(-1.0) == 0).sum()),
+    }
+
+
+__all__ = ["CONTRACT_SIZE", "DEALER_SIGNS", "resolve_config", "dealer_signs", "dollar_factor",
+           "require_single_snapshot", "greek_coverage"]

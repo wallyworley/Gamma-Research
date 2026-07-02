@@ -7,6 +7,7 @@ read the canonical schema and take conventions from EngineConfig; proprietary-
 derived metrics are labeled proxies. Needs the data stack.
 """
 
+from ._common import greek_coverage
 from .blackscholes import bs_gamma
 from .dex import DexBalance, contract_dex, db_change, dealer_delta_balance
 from .gex import (
@@ -32,6 +33,7 @@ from .ratios import gex_ratio, trailing_percentile
 __all__ = [
     # M2
     "bs_gamma",
+    "greek_coverage",
     "contract_gex",
     "net_gex",
     "gex_by_strike",
