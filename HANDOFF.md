@@ -3,7 +3,7 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-01 (M4 event-driven backtester + cost model; M0-M3 done).
+Last updated: 2026-07-01 (M5 signal layer + evaluation harness; M0-M4 done).
 
 ## What this repo is
 
@@ -136,6 +136,21 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
 - **Not yet wired:** the signal layer (gamma-structure rule -> target weights) and building `bars`
   from a vendor. The EODHD stock EOD call already returns OHLC, so `bars` is a thin adapter step.
 
+### Code: M5 signal layer + evaluation harness - on branch `phase1-m5-signals-eval` (off main)
+- `src/signals/rules.py` - `regime_signal` (+GEX -> long / -GEX -> short / flat), `regime_series`, and
+  the generic `chain_metric_series(chains, fn)`. Input `chains` is an ordered mapping
+  `{bar_timestamp: chain_df}` keyed to match `bars.index`; the weight decided from bar t's chain fills
+  at t+1's open (engine enforces it). Rules are transparent/config-driven (owned baselines).
+- `src/eval/baselines.py` - `random_entry_control` (seeded, reproducible random long/flat control).
+- `src/eval/harness.py` - `regime_attribution` (per-bar returns bucketed by the regime at t-1 that
+  drove the position), `cost_sweep` (net return over a commission x slippage grid), and `scorecard`
+  (rule stats vs buy-and-hold + random control, `beats_*` flags, attribution, stamped with
+  `config_hash()`).
+- `tests/test_signals_eval.py` - signal weights, attribution golden (+GEX bar +0.10 / -GEX bar -0.10),
+  cost-sweep monotonicity, reproducible random baseline, and an end-to-end scorecard that beats both
+  baselines on a favorable synthetic scenario. **93 tests total, all green** (66 skip without the data
+  stack; passes under `-W error::DeprecationWarning`).
+
 ### Two validation passes already incorporated
 1. Round 1 (claims-only; reviewer couldn't see the docs) - fixed GEX formula framing (share vs
    dollar-per-1%-move), Polygon history (~2014 trades/aggs), ORATS 1-min (Aug 2020), Alpha Vantage
@@ -149,26 +164,26 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
 
 ## Open threads / next steps
 
-- **On GitHub (`origin`, default `main`):** M0/M1 (PR #1), M2 (PR #3), M3 (PR #4) are all **merged to
-  `main`**. M4 is on branch `phase1-m4-backtester` (PR #5, base `main`). Recreate the env with
+- **On GitHub (`origin`, default `main`):** M0/M1 (#1), M2 (#3), M3 (#4), M4 (#5) are all **merged to
+  `main`**. M5 is on branch `phase1-m5-signals-eval` (PR #6, base `main`). Recreate the env with
   `python3 -m venv .venv && .venv/bin/pip install -r requirements.lock.txt`; run `.venv/bin/python -m
   unittest discover -s tests -v`.
-- **M0 - M4 done.** **M5 (evaluation harness) + the signal layer are next.**
-- **Signal layer (small, do first):** `src/signals/` mapping a time series of chain snapshots to a
-  per-bar target-weight series the backtester consumes. Start with one transparent rule, e.g. +GEX ->
-  long / -GEX -> flat using `gamma_snapshot(chain_t).regime`. Decide the target at bar t's close; the
-  engine already fills it at t+1 open (no lookahead). Build `bars` (open/close) from the EODHD stock
-  EOD call (already returns OHLC).
-- **M5 evaluation harness:** regime attribution (+GEX vs -GEX buckets), the random-entry control and
-  buy-and-hold baselines (buy_and_hold exists), a cost/slippage grid sweep, and a reproducible
-  scorecard per rule (docs/phase_1_plan.md sections 8-9). `EngineConfig.config_hash()` stamps runs.
-- **Metric API recap for signals:** `from src.metrics import gamma_snapshot, dealer_delta_balance,
-  gex_ratio, oi_levels, moneyness_levels, gamma_transitions, grade_proxy`. History-dependent pieces
-  (`db_change`, `trailing_percentile`, grade's `gex_ratio_percentile`) take a series the harness
-  accumulates across bars.
-- **Before real backtests:** need a live `EODHD_API_TOKEN` (demo token only returns AAPL sample
-  data). EODHD options history reaches only ~Q4 2023, so early backtests are shallow until a
-  deeper-history vendor is graduated in (M6).
+- **M0 - M5 done. The offline research engine is functionally complete end-to-end**
+  (vendor adapter -> canonical parquet -> metrics/proxies -> signal -> point-in-time backtest ->
+  scorecard vs baselines), all on synthetic/fixture data with 93 passing tests.
+- **What's left to run it for real (needs a live `EODHD_API_TOKEN`):**
+  1. Build `bars` (open/close) from the EODHD stock EOD call (already returns OHLC) - a thin adapter
+     step; then pull a range of daily chains + underlying closes for one symbol.
+  2. Persist chains via `io.write_canonical`, compute per-date snapshots, run `regime_signal` ->
+     `scorecard`. Keep the negative result if the rule doesn't beat baselines net of costs.
+  Demo token only returns AAPL sample data; EODHD options history reaches only ~Q4 2023.
+- **M6 (optional, deeper history / greek quality):** add an ORATS or Polygon `ChainAdapter` behind the
+  same interface and run the cross-vendor comparison. Greek source is already recorded per row
+  (`_greek_source`), so results are comparable.
+- **Signal ideas beyond regime:** threshold rules on `gex_ratio` / `grade_proxy` /
+  distance-to-ZeroGEX, built with `chain_metric_series`. History-dependent inputs
+  (`db_change`, `trailing_percentile`, grade's `gex_ratio_percentile`) take a series accumulated
+  across bars.
 - **Run validation again** with the filled prompt: `python3 scripts/build_validation_prompt.py`,
   then paste `prompts/validation_prompt.FILLED.md` into a fresh model.
 - **Vendor matrix asterisk:** re-check current plan entitlements before buying any provider; history
