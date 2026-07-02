@@ -187,16 +187,20 @@ set; the rest are queued for later phases (see below).
 The EODHD token turned out to be free-tier with **no options entitlement** (403; options is a paid
 add-on). A fable provider search found a zero-cost path we can use TODAY:
 - `src/ingest/adapters/cboe.py` - **`CboeAdapter`** (registered `"cboe"`), reads Cboe's free, no-key,
-  ~15-min-delayed options JSON (`cdn.cboe.com/api/global/delayed_quotes/options/{SYM}.json`; indices
-  use `_SYM`). Returns the **full chain** with greeks + IV + OI and the underlying spot in one call.
-  Parses OSI symbols; `quote_ts` from the payload timestamp (UTC) so fixtures are time-stable;
-  `oi_asof_date` stamped T-1 weekday (exchange convention). Snapshot-only (no history): build history
-  by capturing daily going forward. `tests/fixtures/cboe_options_sample.json` is a trimmed real pull.
+  ~15-min-delayed options JSON (`cdn.cboe.com/api/global/delayed_quotes/options/{SYM}.json`). Returns
+  the **full chain** with greeks + IV + OI and the underlying spot in one call. Parses OSI symbols.
+  **Session handling (fable B1):** the payload timestamp is a ticking UTC generation clock, so the
+  trading session is taken from its *Eastern* date and `quote_ts` is anchored to that session's close
+  (16:00 ET in UTC) - avoids the US-evening UTC-date rollover; `oi_asof_date` = T-1 weekday of the
+  session. **Equities only (fable B2):** AM/PM-settled index chains (SPX vs SPXW share exp/strike/type)
+  would collide on the canonical key; the adapter **raises** on those rather than silently dropping OI
+  (index support needs a settlement field in the schema - future work). Snapshot-only; build history
+  going forward. `tests/fixtures/cboe_options_sample.json` is a trimmed real pull.
 - **Live-verified**: `CboeAdapter().load("AAPL")` fetched 3,508 real contracts, validated with zero
   issues, and the metric engine computed real GEX (Net GEX ~+1.5B, +GEX regime, ZeroGEX ~263 vs spot
   ~308). First time the whole pipeline ran on real market data.
 - `tests/test_cboe_adapter.py` - OSI/timestamp parsers, normalize mapping, validation, dedup,
-  end-to-end parquet, registration, index-URL. **119 tests total, all green.**
+  end-to-end parquet, registration, index-URL, plus adversarial B1 (evening rollover) and B2 (dual-settlement) cases. **121 tests total, all green.**
 - Cboe caveats: unofficial CDN (no SLA; be gentle/cache), 15-min delayed, snapshot-only, some deep
   contracts report iv/greeks 0; do not redistribute.
 
@@ -226,7 +230,7 @@ is the future *live/forward + execution* layer, not a historical-backtest source
   run `.venv/bin/python -m unittest discover -s tests -v`.
 - **M0 - M5 done + review-hardening phase 1 + Cboe adapter.** The engine is complete end-to-end
   (adapter -> canonical parquet -> metrics/proxies -> signal -> point-in-time backtest -> significance
-  scorecard) and now runs on **real** options data via Cboe. **119 passing tests.**
+  scorecard) and now runs on **real** options data via Cboe. **121 passing tests.**
 - **Review loop:** the workflow is - implement a batch of fable findings -> have fable re-review the
   branch -> next batch. Re-review by spawning a general-purpose agent on model `fable`, read-only,
   pointed at `prompts/code_review_prompt.md` (see that file's `## PROMPT` section).

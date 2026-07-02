@@ -13,16 +13,23 @@ Payload:   {"timestamp": "YYYY-MM-DD HH:MM:SS" (UTC),
 The per-contract `option` is an OSI symbol: root + YYMMDD + C/P + strike*1000.
 
 Design notes:
-  * `quote_ts` is taken from the payload's own `timestamp` (the snapshot as-of
-    time, UTC), NOT from wall-clock, so a recorded fixture validates identically
-    whenever the tests run.
+  * The payload's top-level `timestamp` is a **UTC generation clock** that keeps
+    ticking after the close, so its UTC calendar date rolls over in the US evening
+    (verified). Using it directly would mis-date any evening snapshot. So the
+    **trading session** is derived from that timestamp's *Eastern* date, and
+    `quote_ts` is anchored to that session's close (16:00 ET, in UTC) - the same
+    model as the EODHD adapter. (Assumes the fetch happens during or after the
+    session it reports, not in the pre-dawn ET window; and each pull is treated as
+    a snapshot of that session, stamped at its close.)
   * Exchange open interest is a prior-session figure, so `oi_asof_date` is stamped
-    T-1 weekday (`oi_lag_days`, default 1). This is the exchange convention, a
-    firmer basis than the EODHD adapter's guess - but still weekday-only, NOT
-    holiday-aware (F1).
+    T-1 weekday from the session date (`oi_lag_days`, default 1). Exchange
+    convention, but weekday-only, NOT holiday-aware (F1).
   * Snapshot-only: there is no historical date parameter. `quote_date` is
-    informational; the returned data is always the current snapshot. Build history
-    by capturing daily going forward.
+    informational (a mismatch warns); the data is always the current snapshot.
+  * **Equities only for now.** Index chains with AM/PM settlement (e.g. SPX vs
+    SPXW share expiration/strike/type but are distinct contracts) would collide on
+    the canonical key; the adapter fails loudly on such chains rather than silently
+    drop open interest. Index support needs a settlement field in the schema.
 
 Caveats: unofficial CDN (no SLA - be gentle, cache); ~15-min delayed; some deep
 contracts report iv/greeks as 0; do not redistribute.
@@ -39,6 +46,7 @@ import re
 import urllib.request
 from datetime import date, datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -49,6 +57,8 @@ _log = logging.getLogger(__name__)
 
 _BASE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/options"
 _HTTP_TIMEOUT = 30
+_ET = ZoneInfo("America/New_York")
+_MARKET_CLOSE = (16, 0)
 # OSI: root (letters/digits) + YYMMDD + C|P + 8-digit strike (price * 1000).
 _OSI = re.compile(r"^([A-Z0-9]+?)(\d{6})([CP])(\d{8})$")
 
@@ -67,17 +77,17 @@ def _int(value: Any) -> int | None:
     return None if f is None else int(f)
 
 
-def _parse_osi(symbol: str) -> tuple[date, float, str] | None:
-    """OSI option symbol -> (expiration, strike, 'call'|'put'); None if unparseable."""
+def _parse_osi(symbol: str) -> tuple[date, float, str, str] | None:
+    """OSI option symbol -> (expiration, strike, 'call'|'put', root); None if bad."""
     m = _OSI.match(symbol or "")
     if not m:
         return None
-    _root, ymd, cp, strike8 = m.groups()
+    root, ymd, cp, strike8 = m.groups()
     try:
         exp = date(2000 + int(ymd[:2]), int(ymd[2:4]), int(ymd[4:6]))
     except ValueError:
         return None
-    return exp, int(strike8) / 1000.0, ("call" if cp == "C" else "put")
+    return exp, int(strike8) / 1000.0, ("call" if cp == "C" else "put"), root
 
 
 def _parse_ts(value: str) -> datetime:
@@ -86,6 +96,13 @@ def _parse_ts(value: str) -> datetime:
         raise ValueError("Cboe payload has no timestamp")
     parsed = datetime.fromisoformat(value)  # accepts 'YYYY-MM-DD HH:MM:SS'
     return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+
+def _session_close_utc(session_date: date) -> datetime:
+    """The ET session close (16:00 America/New_York) for session_date, in UTC."""
+    local = datetime(session_date.year, session_date.month, session_date.day,
+                     _MARKET_CLOSE[0], _MARKET_CLOSE[1], tzinfo=_ET)
+    return local.astimezone(timezone.utc)
 
 
 @register_adapter
@@ -121,15 +138,29 @@ class CboeAdapter(ChainAdapter):
         if spot is None or spot <= 0:
             raise ValueError(f"Cboe: missing/invalid current_price for {symbol}")
 
-        quote_ts = _parse_ts(raw.get("timestamp"))
-        oi_asof = self._oi_asof(quote_ts.date())
+        # Session = the ET date of the (UTC) generation timestamp; anchor quote_ts
+        # to that session's close so oi_asof and expiry validation use the real
+        # trading day, not the UTC date that rolls over in the US evening (B1).
+        session_date = _parse_ts(raw.get("timestamp")).astimezone(_ET).date()
+        quote_ts = _session_close_utc(session_date)
+        oi_asof = self._oi_asof(session_date)
+        if quote_date is not None and quote_date != session_date:
+            _log.warning("Cboe %s: requested quote_date %s != live snapshot session %s "
+                         "(Cboe is snapshot-only)", symbol.upper(), quote_date, session_date)
 
+        roots_by_key: dict[tuple, set] = {}
         rows = []
+        skipped_osi = skipped_expired = 0
         for o in data.get("options", []) or []:
             parsed = _parse_osi(o.get("option", ""))
             if parsed is None:
+                skipped_osi += 1
                 continue
-            exp, strike, opt_type = parsed
+            exp, strike, opt_type, root = parsed
+            if exp < session_date:            # already-expired stray: drop, don't reject the chain
+                skipped_expired += 1
+                continue
+            roots_by_key.setdefault((exp, strike, opt_type), set()).add(root)
             rows.append({
                 "symbol": symbol.upper(),
                 "quote_ts": quote_ts,
@@ -154,6 +185,21 @@ class CboeAdapter(ChainAdapter):
                 "_adapter": self.name,
             })
 
+        # Distinct OCC roots under one (expiration, strike, type) are AM/PM-settled
+        # index variants (SPX vs SPXW), genuinely different contracts the canonical
+        # key cannot tell apart. Merging would silently drop OI, so fail loudly (B2).
+        collisions = {k: v for k, v in roots_by_key.items() if len(v) > 1}
+        if collisions:
+            key, roots = next(iter(collisions.items()))
+            raise NotImplementedError(
+                f"Cboe {symbol.upper()}: {len(collisions)} (expiration,strike,type) key(s) carry "
+                f"multiple OCC roots (e.g. {sorted(roots)} at {key}) - AM/PM-settled index variants. "
+                "The canonical schema cannot yet distinguish settlement, so they would be silently "
+                "merged. Index / dual-settled chains are unsupported until settlement is in the schema.")
+        if skipped_osi or skipped_expired:
+            _log.warning("Cboe %s: skipped %d unparseable + %d expired contract(s)",
+                         symbol.upper(), skipped_osi, skipped_expired)
+
         df = pd.DataFrame(rows, columns=field_names())
         df["quote_ts"] = pd.to_datetime(df["quote_ts"], utc=True)
         df["expiration"] = pd.to_datetime(df["expiration"])
@@ -165,7 +211,7 @@ class CboeAdapter(ChainAdapter):
         before = len(df)
         df = df.drop_duplicates(subset=list(PRIMARY_KEY), keep="last").reset_index(drop=True)
         if len(df) < before:
-            _log.warning("Cboe %s: dropped %d duplicate contract row(s)", symbol.upper(), before - len(df))
+            _log.warning("Cboe %s: dropped %d exact-duplicate contract row(s)", symbol.upper(), before - len(df))
         return df
 
     def load(self, symbol: str, quote_date: date | None = None, **kwargs: Any) -> pd.DataFrame:
