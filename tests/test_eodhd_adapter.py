@@ -65,9 +65,9 @@ class TestEodhdNormalize(unittest.TestCase):
         for col in ("_adapter", "_greek_source", "_iv_source"):
             self.assertTrue((self.df[col] == "eodhd").all())
 
-    def test_oi_asof_stamped_prior_business_day(self):
-        # F1: OI as-of is stamped (default T-1 business day), not left null.
-        # quote_date 2024-06-03 (Mon) -> prior business day 2024-05-31 (Fri).
+    def test_oi_asof_stamped_prior_weekday(self):
+        # F1: OI as-of is stamped (default T-1 weekday), not left null.
+        # quote_date 2024-06-03 (Mon) -> prior weekday 2024-05-31 (Fri).
         self.assertTrue((self.df["oi_asof_date"].dt.date == dt.date(2024, 5, 31)).all())
         self.assertTrue((self.df["oi_asof_date"].dt.date <= _QUOTE_DATE).all())
 

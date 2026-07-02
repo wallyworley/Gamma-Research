@@ -100,8 +100,10 @@ def _bootstrap_mean_ci(bar_returns: pd.Series, *, seed: int, n: int,
 
 
 def _percentile_beaten(strat_ret: float, control_returns: np.ndarray) -> float:
-    """Fraction of controls the strategy strictly beats (NaN if no controls)."""
-    return float(np.mean(strat_ret > control_returns)) if control_returns.size else float("nan")
+    """Fraction of controls the strategy strictly beats (NaN if none, or NaN input)."""
+    if control_returns.size == 0 or not np.isfinite(strat_ret):
+        return float("nan")
+    return float(np.mean(strat_ret > control_returns))
 
 
 def scorecard(bars: pd.DataFrame, target_position, *, config: EngineConfig | None = None,
@@ -112,29 +114,34 @@ def scorecard(bars: pd.DataFrame, target_position, *, config: EngineConfig | Non
     Replaces the old naked `beats_*` booleans (which an informationless always-in
     signal passed, review finding F3). The **primary** timing test is
     `permutation_test`: the strategy vs shuffles of its OWN weights, which match
-    exposure, sign (long AND short), and turnover, so `strategy_percentile` there
-    measures timing skill and cannot be fooled by beta of either sign. A secondary
-    exposure-matched (long-only) random control, a bootstrap CI on the mean bar
-    return, and a Sharpe are also reported. Stamped with config_hash().
+    exposure and sign (long AND short), so it cannot be fooled by beta of either
+    sign. It compares **gross** returns, because a permutation does NOT preserve
+    turnover; comparing net would let a low-turnover signal's percentile be inflated
+    by cost asymmetry rather than timing (F3 follow-up). A secondary exposure-matched
+    (long-only) random control, a bootstrap CI on the mean bar return, and a Sharpe
+    are also reported. Stamped with config_hash().
     """
     cfg = resolve_config(config)
     result = run_backtest(bars, target_position, config=cfg)
     strat_ret = result.stats["total_return"]
+    strat_gross = total_return(result.gross_equity)
     bar_returns = result.net_equity.pct_change()
 
     bh_ret = total_return(buy_and_hold(bars, cfg.backtest.initial_capital))
     exposure = _exposure_fraction(target_position, bars)
 
-    # Primary: permutation test of timing skill (sign/exposure/turnover-matched).
+    # Primary timing test: strategy vs shuffles of its own weights, on GROSS
+    # returns so cost/turnover asymmetry cannot leak in (only timing differs).
     perms = np.array([
-        run_backtest(bars, permutation_control(target_position, bars, seed=random_seed + k),
-                     config=cfg).stats["total_return"]
+        total_return(run_backtest(bars, permutation_control(target_position, bars, seed=random_seed + k),
+                                  config=cfg).gross_equity)
         for k in range(n_permutations)
     ]) if n_permutations > 0 else np.array([])
 
-    # Secondary: exposure-matched random long/flat control (directional baseline).
+    # Secondary: exposure-matched random long/flat control (directional, net).
+    # Seed offset kept well clear of the permutation seeds above.
     controls = np.array([
-        run_backtest(bars, random_entry_control(bars, seed=10_000 + random_seed + k, prob=exposure),
+        run_backtest(bars, random_entry_control(bars, seed=1_000_003 + random_seed + k, prob=exposure),
                      config=cfg).stats["total_return"]
         for k in range(n_controls)
     ]) if n_controls > 0 else np.array([])
@@ -150,7 +157,9 @@ def scorecard(bars: pd.DataFrame, target_position, *, config: EngineConfig | Non
         "excess_vs_buy_and_hold": strat_ret - bh_ret,
         "permutation_test": {
             "n": int(n_permutations),
-            "strategy_percentile": _percentile_beaten(strat_ret, perms),
+            "basis": "gross",
+            "strategy_gross_return": strat_gross,
+            "strategy_percentile": _percentile_beaten(strat_gross, perms),
             "mean_return": float(perms.mean()) if perms.size else float("nan"),
         },
         "random_control": {

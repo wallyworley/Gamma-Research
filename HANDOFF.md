@@ -165,19 +165,23 @@ set; the rest are queued for later phases (see below).
   consumer yet (reserved for self-computed greeks / multi-currency; no IV solver exists today), so
   `config_hash()` is not yet a clean function of only effective knobs. Tracked for a later phase.
 - **F1** (OI timing lie): deleted the false "the backtester/metric engine aligns OI T-1" docstrings.
-  `EodhdAdapter` now **stamps `oi_asof_date`** (default prior business day, `oi_lag_days=1`), a documented
-  UNVERIFIED assumption. Nothing shifts OI across time; the metric docstrings now say so.
+  `EodhdAdapter` now **stamps `oi_asof_date`** (default prior weekday, `oi_lag_days=1`; weekend-aware
+  only, NOT holiday-aware), a documented UNVERIFIED assumption. Nothing shifts OI across time; the
+  metric docstrings now say so.
 - **F8** (incoherent composite): `grade_proxy` `score_proxy` is **quarantined** - `None` unless
   `enable_composite=True`; the 5 descriptive components are always returned; `oi_proximity` relabeled a
   non-directional pin-strength feature.
-- **F3** (scorecard launders beta): replaced the naked `beats_*` booleans with an **exposure-matched**
-  random control (matched to the strategy's realized exposure), a `strategy_percentile`, a bootstrap
-  mean-return CI, and a Sharpe. New test proves an always-long signal no longer trivially beats the
-  control.
+- **F3** (scorecard launders beta): replaced the naked `beats_*` booleans. The **primary** timing test
+  is now `permutation_test` - the strategy vs shuffles of its OWN weights on **gross** returns, which
+  matches exposure and sign (long AND short) and isolates timing (a fable re-review caught that an
+  exposure-only, long-only control still laundered *short* beta, and that a net-basis permutation test
+  would be biased by cost/turnover asymmetry - both fixed). Plus a demoted exposure-matched long-only
+  control, a bootstrap mean-return CI, and a Sharpe. Verified: always-short on a falling market scores
+  permutation percentile 0.0 (old control gave 1.0).
 - **F2** (chain completeness): can't be verified without a live token (demo returns AAPL sample only);
   added a prominent UNVERIFIED caveat in the adapter docstring with the exact A/B check to run.
-- **100 tests, all green** (`.venv/bin/python -m unittest discover -s tests`; passes under
-  `-W error::DeprecationWarning`).
+- **103 tests, all green** (`.venv/bin/python -m unittest discover -s tests`; passes under
+  `-W error::DeprecationWarning`). Fable re-reviewed the branch twice; verdict merge-ready.
 
 ### Two validation passes already incorporated
 1. Round 1 (claims-only; reviewer couldn't see the docs) - fixed GEX formula framing (share vs
