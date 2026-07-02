@@ -25,11 +25,14 @@ from src.ingest.capture import capture_many  # noqa: E402
 
 
 def main(argv: list[str]) -> int:
-    symbols = [s.upper() for s in argv] or ["AAPL"]
+    symbols = list(dict.fromkeys(s.upper() for s in argv)) or ["AAPL"]  # dedupe (N1)
     root = os.environ.get("GAMMA_DATA_DIR") or str(REPO / "data" / "normalized")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     results = capture_many(symbols, root, adapter=CboeAdapter())
+    if "__skipped__" in results:  # non-trading day: clean no-op, not a failure (R1)
+        print(f"skipped: {results['__skipped__']}")
+        return 0
     ok = [s for s, r in results.items() if r["ok"]]
     for sym, r in results.items():
         if not r["ok"]:

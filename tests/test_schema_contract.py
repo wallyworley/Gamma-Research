@@ -73,6 +73,11 @@ class TestSchemaShape(unittest.TestCase):
             schema.partition_relpath("spy", dt.date(2024, 6, 3)),
             "symbol=SPY/date=2024-06-03",
         )
+        # dotted/dashed tickers are fine; path-traversal symbols are rejected (N3).
+        self.assertTrue(
+            schema.partition_relpath("BRK.B", dt.date(2024, 6, 3)).startswith("symbol=BRK.B"))
+        with self.assertRaises(ValueError):
+            schema.partition_relpath("../evil", dt.date(2024, 6, 3))
 
 
 class TestValidateRecords(unittest.TestCase):

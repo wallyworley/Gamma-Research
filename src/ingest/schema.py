@@ -145,8 +145,14 @@ def partition_relpath(symbol: str, quote_date: "_dt.date | _dt.datetime | str") 
     """Hive-style partition directory: symbol=<SYM>/date=<YYYY-MM-DD>.
 
     Parquet is partitioned by symbol and date (docs/phase_1_plan.md section 4.1).
+    The symbol is restricted to a safe charset so it can never traverse out of the
+    data root (e.g. a vendor emitting '../..'); real tickers are letters/digits
+    plus '.' and '-'.
     """
-    return f"symbol={symbol.upper()}/date={_coerce_date(quote_date).isoformat()}"
+    sym = symbol.upper()
+    if not sym or not all(ch.isalnum() or ch in ".-" for ch in sym):
+        raise ValueError(f"unsafe symbol for partition path: {symbol!r}")
+    return f"symbol={sym}/date={_coerce_date(quote_date).isoformat()}"
 
 
 # --------------------------------------------------------------------------- #

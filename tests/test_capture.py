@@ -4,6 +4,7 @@ Uses a fake adapter (no live HTTP): the frame comes from normalizing the recorde
 Cboe fixture, so the write/read partition path is exercised deterministically.
 """
 
+import datetime as dt
 import json
 import os
 import sys
@@ -43,10 +44,15 @@ class TestCapture(unittest.TestCase):
             res = capture_snapshot(Fake(), "AAPL", root)
             self.assertTrue(res["ok"])
             self.assertEqual(res["contracts"], 6)
-            # partition is the snapshot's session, and reads back valid.
+            # Session dated from the snapshot (fixture's frozen 2026-07-02), not today.
+            self.assertEqual(res["session"], "2026-07-02")
             back = io.read_canonical(root, "AAPL", res["session"])
             self.assertEqual(len(back), 6)
             self.assertEqual(schema.validate_frame(back), [])
+            # Idempotent: re-running the session overwrites (still 6 rows, one file).
+            capture_snapshot(Fake(), "AAPL", root)
+            again = io.read_canonical(root, "AAPL", res["session"])
+            self.assertEqual(len(again), 6)
 
     def test_capture_many_isolates_failures(self):
         from src.ingest.capture import capture_many
@@ -60,10 +66,41 @@ class TestCapture(unittest.TestCase):
                 return good
 
         with tempfile.TemporaryDirectory() as root:
-            res = capture_many(["AAPL", "BAD"], root, adapter=Mixed())
+            res = capture_many(["AAPL", "BAD"], root, adapter=Mixed(), today=dt.date(2026, 6, 3))
         self.assertTrue(res["AAPL"]["ok"])
         self.assertFalse(res["BAD"]["ok"])
         self.assertIn("boom", res["BAD"]["error"])
+
+
+@unittest.skipUnless(_HAVE_STACK, "pandas not installed")
+class TestTradingDayGuard(unittest.TestCase):
+    def test_weekend_and_holiday_skip_without_capturing(self):
+        # R1: a non-trading day (Sat 2026-06-06; and the Fri 2026-07-03 July-4
+        # observed holiday) must no-op and NOT write a partition.
+        from src.ingest.capture import capture_many, is_trading_day
+
+        class BoomAdapter:  # would raise if a capture were attempted
+            def load(self, symbol):
+                raise AssertionError("must not fetch on a non-trading day")
+
+        for day in (dt.date(2026, 6, 6), dt.date(2026, 7, 3)):
+            self.assertFalse(is_trading_day(day))
+            res = capture_many(["AAPL"], "/tmp/should-not-write",
+                               adapter=BoomAdapter(), today=day)
+            self.assertIn("__skipped__", res)
+
+    def test_trading_day_runs(self):
+        from src.ingest.capture import capture_many, is_trading_day
+        day = dt.date(2026, 6, 3)  # a Wednesday
+        self.assertTrue(is_trading_day(day))
+
+        class Fake:
+            def load(self, symbol):
+                raise ValueError("boom")  # runs (and is isolated), proving no skip
+
+        res = capture_many(["X"], "/tmp/x", adapter=Fake(), today=day)
+        self.assertNotIn("__skipped__", res)
+        self.assertFalse(res["X"]["ok"])
 
 
 if __name__ == "__main__":
