@@ -269,9 +269,13 @@ is the future *live/forward + execution* layer, not a historical-backtest source
 - **Running it for real now that Cboe works (free, no token):**
   1. `CboeAdapter().load(symbol)` gives a real, validated chain today; the metric/proxy suite runs on
      it directly (verified on AAPL).
-  2. Cboe is snapshot-only, so a *historical* backtest needs history. Two paths: (a) a daily EOD
-     snapshot job that persists via `io.write_canonical` and accumulates history going forward (free,
-     slow); or (b) buy history (Alpha Vantage Premium / EODHD upgrade) for an instant backfill.
+  2. Cboe is snapshot-only, so a *historical* backtest needs history. **Built (free path):**
+     `src/ingest/capture.py` (`capture_snapshot`/`capture_many`, vendor-agnostic) + CLI
+     `scripts/snapshot_cboe.py` persist a session's chain via `io.write_canonical`, partitioned by
+     symbol/session. Run daily after the close to accumulate history; idempotent per session; data
+     goes to `$GAMMA_DATA_DIR` or `data/normalized/` (git-ignored). Live-verified (AAPL, 3508
+     contracts). **Not yet scheduled** - needs a launchd/cron entry (offer pending user OK). Instant
+     backfill alternative: buy history (Alpha Vantage Premium / EODHD upgrade).
   3. For a first backtest, build `bars` (open/close) from a stock OHLC source (EODHD stock EOD works
      even on the free token, or Cboe/other), then `regime_signal` -> `scorecard`. Expect it to be
      underpowered (F4); keep the honest negative/inconclusive result.
