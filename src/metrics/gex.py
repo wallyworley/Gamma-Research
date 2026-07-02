@@ -61,6 +61,7 @@ def contract_gex(df: pd.DataFrame, *, config: EngineConfig | None = None,
 
 def net_gex(df: pd.DataFrame, *, config: EngineConfig | None = None, spot=None) -> float:
     """Aggregate signed GEX over the whole chain (dealer-signed)."""
+    require_single_snapshot(df)
     if df.empty:
         return 0.0
     return float(contract_gex(df, config=config, spot=spot).sum())
@@ -68,6 +69,7 @@ def net_gex(df: pd.DataFrame, *, config: EngineConfig | None = None, spot=None) 
 
 def gex_by_strike(df: pd.DataFrame, *, config: EngineConfig | None = None) -> pd.Series:
     """Signed GEX summed per strike (across calls, puts, expirations), sorted."""
+    require_single_snapshot(df)
     gex = contract_gex(df, config=config)
     return gex.groupby(df["strike"]).sum().sort_index()
 
@@ -151,6 +153,7 @@ def zero_gex(df: pd.DataFrame, *, config: EngineConfig | None = None) -> float |
     flip exists - the true flip may lie outside the grid. See `gamma_snapshot`,
     which exposes `zero_gex_in_grid` and the search range.
     """
+    require_single_snapshot(df)
     return _zero_gex_detail(df, resolve_config(config))["flip"]
 
 
