@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from ..config import EngineConfig
-from ._common import resolve_config
+from ._common import require_single_snapshot, resolve_config
 from .gex import contract_gex
 
 
@@ -26,6 +26,7 @@ def gex_ratio(df: pd.DataFrame, *, config: EngineConfig | None = None) -> float:
 
     Returns +inf if there is call GEX but no put GEX, and NaN if both are zero.
     """
+    require_single_snapshot(df)
     cfg = resolve_config(config)
     if df.empty:
         return float("nan")

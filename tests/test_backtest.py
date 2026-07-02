@@ -146,5 +146,21 @@ class TestBarsValidation(unittest.TestCase):
             validate_bars(bad)
 
 
+@unittest.skipUnless(_HAVE_STACK, "pandas not installed")
+class TestBacktestGuards(unittest.TestCase):
+    def test_weight_out_of_range_rejected(self):
+        # F15: a target weight outside [-1, 1] is a typo/leverage; fail loudly.
+        from src.backtest import run_backtest
+        with self.assertRaises(ValueError):
+            run_backtest(scenario(), target({"2024-06-03": 1.5}))
+
+    def test_nonintersecting_target_rejected(self):
+        # F7: a target keyed to timestamps not in bars would silently do nothing.
+        from src.backtest import run_backtest
+        stray = pd.Series({pd.Timestamp("2099-01-01"): 1.0})
+        with self.assertRaises(ValueError):
+            run_backtest(scenario(), stray)
+
+
 if __name__ == "__main__":
     unittest.main()

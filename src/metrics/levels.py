@@ -25,7 +25,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from ..config import EngineConfig
-from ._common import resolve_config
+from ._common import require_single_snapshot, resolve_config
 from .gex import contract_gex
 
 
@@ -56,6 +56,7 @@ class OiLevels:
 
 def oi_levels(df: pd.DataFrame) -> OiLevels:
     """COI/POI: max-OI call and put strikes, plus aggregate call/put OI."""
+    require_single_snapshot(df)
     calls = df[df["type"] == "call"]
     puts = df[df["type"] == "put"]
     return OiLevels(
@@ -77,15 +78,17 @@ class MoneynessLevels:
 
 
 def moneyness_levels(df: pd.DataFrame) -> MoneynessLevels:
-    """COTMP/COTMC/CITMP/CITMC: max-OI strike in each type x moneyness bucket."""
+    """COTMP/COTMC/CITMP/CITMC: max-OI strike in each type x moneyness bucket.
+
+    Strikes exactly at spot are excluded from all four buckets (ATM is neither
+    ITM nor OTM); real spots rarely equal a listed strike.
+    """
+    require_single_snapshot(df)
     if df.empty:
         return MoneynessLevels(None, None, None, None)
     spot = float(df["underlying_price"].iloc[0])
     calls = df[df["type"] == "call"]
     puts = df[df["type"] == "put"]
-    strike = df["strike"].astype("float64")
-    below = strike < spot
-    above = strike > spot
     return MoneynessLevels(
         cotmp_proxy=_argmax_oi_strike(puts[puts["strike"].astype("float64") < spot]),
         cotmc_proxy=_argmax_oi_strike(calls[calls["strike"].astype("float64") > spot]),
@@ -104,6 +107,7 @@ class Transitions:
 
 def gamma_transitions(df: pd.DataFrame, *, config: EngineConfig | None = None) -> Transitions:
     """PTrans/NTrans: nearest strikes where per-strike call/put gamma dominance flips."""
+    require_single_snapshot(df)
     cfg = resolve_config(config)
     if df.empty:
         return Transitions(None, None)

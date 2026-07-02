@@ -117,6 +117,22 @@ def run_backtest(bars: pd.DataFrame, target_position, *,
     cfg = resolve_config(config)
     validate_bars(bars)
     target = pd.Series(target_position)
+
+    # F15: a target is a weight in [-1, 1] (fraction of equity). Reject leverage /
+    # typos loudly rather than silently size a levered position.
+    finite = target.dropna()
+    if len(finite) and float(finite.abs().max()) > 1.0 + 1e-9:
+        raise ValueError(
+            f"target weights must be in [-1, 1]; got max |weight| = {float(finite.abs().max()):.4g}")
+    # F7: if the target's index does not intersect bars, the reindex below turns
+    # every bar into a hold and the backtest silently does nothing. Fail loudly -
+    # this is the most common wiring mistake (e.g. keying by chain quote_ts, which
+    # is 20:00 UTC, against date-indexed bars).
+    if len(target) and len(target.index.intersection(bars.index)) == 0:
+        raise ValueError(
+            "target_position index does not intersect bars.index; no rebalances would occur. "
+            "Key the target to the same timestamps as bars.")
+
     if not target.index.equals(bars.index):
         target = target.reindex(bars.index)
 

@@ -77,6 +77,11 @@ class MetricsConfig:
     # Standard convention (terms doc "Foundational caveat"): dealers net long calls,
     # net short puts, so Net GEX = Call gamma - Put gamma (call +1, put -1).
     dealer_sign_convention: str = "long_call_short_put"
+    # ZeroGEX search grid (hashed, so a run records the range it searched). A None
+    # flip means "no crossing in this grid", not "no flip exists" (F10).
+    zerogex_grid_lo_frac: float = 0.7
+    zerogex_grid_hi_frac: float = 1.3
+    zerogex_grid_n: int = 121
 
 
 _SECTIONS = {

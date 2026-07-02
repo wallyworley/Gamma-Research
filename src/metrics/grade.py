@@ -35,7 +35,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from ..config import EngineConfig
-from ._common import resolve_config
+from ._common import require_single_snapshot, resolve_config
 from .dex import dealer_delta_balance
 from .gex import contract_gex, zero_gex
 from .levels import oi_levels
@@ -77,6 +77,7 @@ def grade_proxy(df: pd.DataFrame, *, config: EngineConfig | None = None,
     The composite `score_proxy` is quarantined (F8): it stays None unless
     ``enable_composite=True``. The five components are always returned.
     """
+    require_single_snapshot(df)
     cfg = resolve_config(config)
     if df.empty:
         return GradeProxy(score_proxy=None, components={})
