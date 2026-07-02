@@ -17,5 +17,6 @@ venv/
 .vscode/
 .idea/
 
-# Generated (regenerate with scripts/build_validation_prompt.py)
+# Generated (regenerate with the matching scripts/build_*_prompt.py)
 prompts/validation_prompt.FILLED.md
+prompts/code_review_prompt.FILLED.md

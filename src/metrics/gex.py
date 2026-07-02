@@ -13,8 +13,12 @@ Per-contract dollar GEX (dollar-per-1%-move form):
 with sign = +1 for calls, -1 for puts under the standard
 `long_call_short_put` convention. Net GEX sums that over the chain; regime is its
 sign; ZeroGEX is the spot where it flips (via a BS-gamma recompute, see
-blackscholes.py). Open interest is used as reported; point-in-time T-1 alignment
-of OI is the backtester's job (M4), not this layer's.
+blackscholes.py). Open interest is used exactly as it arrives on the snapshot,
+carrying whatever `oi_asof_date` the adapter stamped; **no layer shifts OI across
+time** (there is no time-series T-1 realignment - a prior claim that the
+backtester did this was false, review finding F1). A single snapshot is
+point-in-time correct only insofar as the adapter's `oi_asof_date` assumption
+holds; verify it before trusting live results.
 """
 
 from __future__ import annotations

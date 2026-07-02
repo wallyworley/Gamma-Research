@@ -116,7 +116,7 @@ this table mirrors it.
 | `underlying_price` | spot at `quote_ts`, > 0; adapter must attach it (GEX/DEX undefined without it) |
 | `bid`, `ask`, `last` | contract prices (nullable) |
 | `open_interest` | contracts outstanding (usually T-1 for EOD sources) |
-| `oi_asof_date` | session the OI is as-of; null => treat as T-1 of `quote_ts`; must be <= quote date |
+| `oi_asof_date` | session the OI is as-of (adapter-stamped); null = unknown, no layer infers it; must be <= quote date |
 | `volume` | contract volume |
 | `iv` | vendor IV, or self-computed (record source) |
 | `delta`,`gamma`,`theta`,`vega`,`rho` | vendor greeks, or self-computed (record source + model) |
@@ -128,11 +128,12 @@ The key columns `(symbol, quote_ts, expiration, strike, type)` form the natural 
 `symbol`, `quote_ts`, `expiration`, `strike`, `type`, `underlying_price`, `_adapter`. On disk, chains
 are parquet partitioned as `symbol=<SYM>/date=<YYYY-MM-DD>/chain.parquet`.
 
-**OI timing caveat:** exchange OI is typically published for the **prior** session. Treat OI as
-`T-1` unless a vendor states otherwise, and align it point-in-time to avoid lookahead. `oi_asof_date`
-makes this explicit and is validated (`oi_asof_date <= quote date`) so the class of bug cannot pass
-ingestion; likewise `expiration >= quote date` and tz-aware `quote_ts` are enforced centrally
-(see [`validate_records`](../src/ingest/schema.py) and the tests in
+**OI timing caveat:** exchange OI is typically published for the **prior** session. The adapter should
+stamp `oi_asof_date` with the session the OI is actually as-of, and ingestion enforces
+`oi_asof_date <= quote date` so a *future*-dated stamp cannot pass. **This guarantee is only as strong
+as the adapter's stamp** - the EODHD adapter's default (prior weekday) is an *unverified* assumption
+(review finding F1); no layer realigns OI across a time series. `expiration >= quote date` and tz-aware
+`quote_ts` are also enforced centrally (see [`validate_records`](../src/ingest/schema.py) and
 [`tests/test_schema_contract.py`](../tests/test_schema_contract.py)).
 
 ---
@@ -180,7 +181,9 @@ A/B tested.
 ## 8. Validation and guardrails
 
 - **No-lookahead tests:** unit tests that fail if any metric or signal at `t` reads data with
-  timestamp > `t` (including OI T-1 alignment).
+  timestamp > `t`. (Status: the backtester's next-open fill rule is tested; a cross-time OI T-1
+  realignment is **not implemented** - OI is used as-of the adapter-stamped `oi_asof_date`, which is
+  an unverified assumption for EOD vendors. See review finding F1.)
 - **Golden GEX cases:** hand-computed mini-chains asserting exact GEX/ZeroGEX values.
 - **Survivorship / universe integrity:** track delistings and symbol changes; document any gaps.
 - **Cost sensitivity:** report performance across a slippage/commission grid, not a single rosy number.

@@ -127,6 +127,16 @@ class TestValidateRecords(unittest.TestCase):
         issues = schema.validate_records([good_row(surprise=1)], raise_on_error=False)
         self.assertTrue(any("unknown field 'surprise'" in i for i in issues))
 
+    def test_duplicate_primary_key_rejected(self):
+        # F5: two rows with the same (symbol, quote_ts, expiration, strike, type).
+        issues = schema.validate_records([good_row(), good_row()], raise_on_error=False)
+        self.assertTrue(any("duplicate primary key" in i for i in issues))
+
+    def test_same_strike_different_type_is_not_duplicate(self):
+        call = good_row(type="call")
+        put = good_row(type="put", delta=-0.4)
+        self.assertEqual(schema.validate_records([call, put]), [])
+
     def test_iso_string_timestamps_accepted(self):
         row = good_row(
             quote_ts="2024-06-03T20:00:00+00:00",

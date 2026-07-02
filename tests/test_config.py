@@ -31,7 +31,7 @@ class TestEngineConfig(unittest.TestCase):
         self.assertEqual(cfg.costs.slippage_bps, 5.0)
         # untouched fields keep defaults
         self.assertEqual(cfg.pricer.model, "black_scholes")
-        self.assertEqual(cfg.backtest.fill_timing, "next_bar_open")
+        self.assertEqual(cfg.backtest.base_currency, "USD")
 
     def test_config_hash_is_stable_and_sensitive(self):
         base = EngineConfig.default()

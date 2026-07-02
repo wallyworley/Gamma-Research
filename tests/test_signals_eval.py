@@ -126,19 +126,65 @@ class TestCostSweep(unittest.TestCase):
 
 @unittest.skipUnless(_HAVE_STACK, "pandas not installed")
 class TestScorecard(unittest.TestCase):
-    def test_scorecard_end_to_end(self):
+    def test_scorecard_shape_and_timing_skill(self):
         from src.eval import scorecard
         from src.signals import regime_series, regime_signal
+        # regime signal is partial-exposure (long only into the +GEX up-bar).
         card = scorecard(_bars(), regime_signal(_chains(), long=1.0, short=0.0),
-                         regimes=regime_series(_chains()))
+                         regimes=regime_series(_chains()),
+                         n_permutations=99, n_controls=50, bootstrap_n=100)
         self.assertEqual(len(card["config_hash"]), 16)
-        for key in ("strategy", "buy_and_hold_return", "random_entry_return",
-                    "beats_buy_and_hold", "beats_random_entry", "regime_attribution"):
+        for key in ("strategy", "strategy_sharpe", "strategy_mean_bar_return",
+                    "bootstrap_mean_ci_95", "buy_and_hold_return", "excess_vs_buy_and_hold",
+                    "permutation_test", "random_control", "regime_attribution"):
             self.assertIn(key, card)
-        # The rule goes long into the +GEX up-bar and flat into the -GEX down-bar,
-        # so it should beat both buy-and-hold and the random control here.
-        self.assertTrue(card["beats_buy_and_hold"])
-        self.assertTrue(card["beats_random_entry"])
+        self.assertNotIn("beats_random_entry", card)   # no naked booleans
+        self.assertGreater(card["excess_vs_buy_and_hold"], 0.0)
+        # Well-timed: beats most shuffles of its own weights (sign-safe timing test).
+        self.assertGreater(card["permutation_test"]["strategy_percentile"], 0.5)
+
+    def test_permutation_denies_short_beta(self):
+        # F3-proper: an always-SHORT signal on a falling market is pure (negative)
+        # beta, not timing. Permuting a constant vector yields itself, so every
+        # permutation ties and the percentile is exactly 0 - the sign hole the
+        # long-only control missed.
+        from src.eval import scorecard
+        down = pd.DataFrame({"open": [100.0, 95.0, 90.0], "close": [95.0, 90.0, 85.0]},
+                            index=_DATES)
+        always_short = pd.Series({d: -1.0 for d in _DATES})
+        card = scorecard(down, always_short, n_permutations=50, n_controls=0, bootstrap_n=50)
+        self.assertEqual(card["permutation_test"]["strategy_percentile"], 0.0)
+
+    def test_permutation_gross_basis_removes_cost_asymmetry(self):
+        # F3 follow-up (fable): a permutation does NOT preserve turnover, so on a
+        # market with identical per-bar moves (zero timing info) a low-turnover
+        # blocky signal must NOT score as skill. The old NET test gave 1.0 here via
+        # cost drag on the higher-turnover shuffles; the GROSS test does not.
+        from src.eval import scorecard
+        n = 20
+        idx = pd.date_range("2024-06-03", periods=n, freq="B")
+        opens, closes = [100.0], []
+        for _ in range(n):                      # every bar +1% intrabar, no gaps
+            c = opens[-1] * 1.01
+            closes.append(c)
+            opens.append(c)
+        bars = pd.DataFrame({"open": opens[:n], "close": closes}, index=idx)
+        blocky = pd.Series([1.0] * (n // 2) + [0.0] * (n // 2), index=idx)  # low turnover
+        card = scorecard(bars, blocky, n_permutations=200, n_controls=0, bootstrap_n=0)
+        # Correct no-skill answer is ~0.5 (centered), NOT ~1.0 as the old net test gave.
+        self.assertLess(card["permutation_test"]["strategy_percentile"], 0.75)
+        self.assertGreater(card["permutation_test"]["strategy_percentile"], 0.25)
+
+    def test_exposure_matched_control_denies_free_beta(self):
+        # An informationless always-long signal must NOT beat the exposure-matched
+        # long-only control on a drifting-up market (both ~always in).
+        from src.eval import scorecard
+        up = pd.DataFrame({"open": [100.0, 105.0, 110.0], "close": [105.0, 110.0, 115.0]},
+                          index=_DATES)
+        always_long = pd.Series({d: 1.0 for d in _DATES})
+        card = scorecard(up, always_long, n_permutations=0, n_controls=50, bootstrap_n=50)
+        self.assertAlmostEqual(card["random_control"]["exposure_matched_prob"], 1.0)
+        self.assertLessEqual(card["random_control"]["strategy_percentile"], 0.5)
 
 
 if __name__ == "__main__":

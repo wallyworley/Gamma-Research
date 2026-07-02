@@ -198,17 +198,23 @@ class TestGradeProxy(unittest.TestCase):
                          "delta": 0.4 if k == "call" else -0.4, "open_interest": 5000, "iv": 0.2})
         return mini_chain(rows, spot=100.0)
 
-    def test_score_in_range_and_components(self):
+    def test_composite_quarantined_by_default(self):
+        # F8: score_proxy is None unless explicitly enabled; components always present.
         from src.metrics import grade_proxy
         g = grade_proxy(self._chain(["call", "put", "call", "put"]))
-        self.assertTrue(0.0 <= g.score_proxy <= 10.0)
+        self.assertIsNone(g.score_proxy)
         self.assertEqual(set(g.components), {
             "regime", "gex_ratio_pct", "delta_skew", "dist_zerogex", "oi_proximity"})
 
+    def test_composite_in_range_when_enabled(self):
+        from src.metrics import grade_proxy
+        g = grade_proxy(self._chain(["call", "put", "call", "put"]), enable_composite=True)
+        self.assertTrue(0.0 <= g.score_proxy <= 10.0)
+
     def test_call_gamma_scores_higher_than_put_gamma(self):
         from src.metrics import grade_proxy
-        all_calls = grade_proxy(self._chain(["call", "call", "call"]))
-        all_puts = grade_proxy(self._chain(["put", "put", "put"]))
+        all_calls = grade_proxy(self._chain(["call", "call", "call"]), enable_composite=True)
+        all_puts = grade_proxy(self._chain(["put", "put", "put"]), enable_composite=True)
         self.assertAlmostEqual(all_calls.components["regime"], 1.0)
         self.assertAlmostEqual(all_puts.components["regime"], 0.0)
         self.assertGreater(all_calls.score_proxy, all_puts.score_proxy)
@@ -216,15 +222,16 @@ class TestGradeProxy(unittest.TestCase):
     def test_weights_normalized_keeps_range(self):
         from src.metrics import grade_proxy
         # Non-normalized weights must still yield a score in [0, 10].
-        g = grade_proxy(self._chain(["call", "put"]),
+        g = grade_proxy(self._chain(["call", "put"]), enable_composite=True,
                         weights={"regime": 5, "gex_ratio_pct": 5, "delta_skew": 5,
                                  "dist_zerogex": 5, "oi_proximity": 5})
         self.assertTrue(0.0 <= g.score_proxy <= 10.0)
 
-    def test_empty_is_nan(self):
+    def test_empty_is_none(self):
         from src.metrics import grade_proxy
-        g = grade_proxy(mini_chain([], spot=100.0))
-        self.assertTrue(math.isnan(g.score_proxy))
+        g = grade_proxy(mini_chain([], spot=100.0), enable_composite=True)
+        self.assertIsNone(g.score_proxy)
+        self.assertEqual(g.components, {})
 
 
 if __name__ == "__main__":

@@ -65,8 +65,35 @@ class TestEodhdNormalize(unittest.TestCase):
         for col in ("_adapter", "_greek_source", "_iv_source"):
             self.assertTrue((self.df[col] == "eodhd").all())
 
-    def test_oi_asof_is_null_pending_t_minus_1(self):
-        self.assertTrue(self.df["oi_asof_date"].isna().all())
+    def test_oi_asof_stamped_prior_weekday(self):
+        # F1: OI as-of is stamped (default T-1 weekday), not left null.
+        # quote_date 2024-06-03 (Mon) -> prior weekday 2024-05-31 (Fri).
+        self.assertTrue((self.df["oi_asof_date"].dt.date == dt.date(2024, 5, 31)).all())
+        self.assertTrue((self.df["oi_asof_date"].dt.date <= _QUOTE_DATE).all())
+
+    def test_oi_lag_zero_uses_quote_date(self):
+        from src.ingest.adapters.eodhd import EodhdAdapter
+        df = EodhdAdapter(api_token="test", oi_lag_days=0).normalize(
+            _load_raw(), symbol="AAPL", quote_date=_QUOTE_DATE)
+        self.assertTrue((df["oi_asof_date"].dt.date == _QUOTE_DATE).all())
+
+    def test_oi_asof_weekday_not_holiday_aware(self):
+        # F1: the stamp is a weekday lag. Weekend-skip is correct...
+        from src.ingest.adapters.eodhd import EodhdAdapter
+        a = EodhdAdapter(api_token="test")
+        self.assertEqual(a._oi_asof_date(dt.date(2024, 6, 3)), dt.date(2024, 5, 31))  # Mon->Fri
+        # ...but it is NOT holiday-aware (known, documented limitation): a lag across
+        # Independence Day names a non-session date rather than skipping it.
+        self.assertEqual(a._oi_asof_date(dt.date(2024, 7, 5)), dt.date(2024, 7, 4))
+
+    def test_duplicate_contracts_deduped(self):
+        # F5: doubled records must dedupe to unique contracts, not double-count.
+        from src.ingest.adapters.eodhd import EodhdAdapter
+        raw = _load_raw()
+        doubled = {"records": raw["records"] + raw["records"], "underlying_close": _SPOT}
+        df = EodhdAdapter(api_token="test").normalize(doubled, symbol="AAPL", quote_date=_QUOTE_DATE)
+        self.assertEqual(len(df), 4)
+        self.assertEqual(schema.validate_frame(df), [])
 
     def test_put_delta_sign_preserved(self):
         puts = self.df[self.df["type"] == "put"]
