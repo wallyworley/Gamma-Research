@@ -5,6 +5,7 @@ stdlib-only. Import this package (or a specific adapter) to make it selectable
 through ingest.get_adapter(name).
 """
 
+from .cboe import CboeAdapter
 from .eodhd import EodhdAdapter
 
-__all__ = ["EodhdAdapter"]
+__all__ = ["EodhdAdapter", "CboeAdapter"]

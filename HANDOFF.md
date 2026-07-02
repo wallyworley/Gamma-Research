@@ -3,7 +3,7 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-02 (review-hardening phase 1: fable must-fix set F1/F2/F5/F6/F8/F3; M0-M5 done).
+Last updated: 2026-07-02 (Cboe adapter: engine now runs on REAL options data, free; M0-M5 + hardening done).
 
 ## What this repo is
 
@@ -183,6 +183,38 @@ set; the rest are queued for later phases (see below).
 - **103 tests, all green** (`.venv/bin/python -m unittest discover -s tests`; passes under
   `-W error::DeprecationWarning`). Fable re-reviewed the branch twice; verdict merge-ready.
 
+### Phase 2: real market data via Cboe (free) - branch `phase2-cboe-adapter`
+The EODHD token turned out to be free-tier with **no options entitlement** (403; options is a paid
+add-on). A fable provider search found a zero-cost path we can use TODAY:
+- `src/ingest/adapters/cboe.py` - **`CboeAdapter`** (registered `"cboe"`), reads Cboe's free, no-key,
+  ~15-min-delayed options JSON (`cdn.cboe.com/api/global/delayed_quotes/options/{SYM}.json`). Returns
+  the **full chain** with greeks + IV + OI and the underlying spot in one call. Parses OSI symbols.
+  **Session handling (fable B1):** the payload timestamp is a ticking UTC generation clock, so the
+  trading session is taken from its *Eastern* date and `quote_ts` is anchored to that session's close
+  (16:00 ET in UTC) - avoids the US-evening UTC-date rollover; `oi_asof_date` = T-1 weekday of the
+  session. **Equities only (fable B2):** AM/PM-settled index chains (SPX vs SPXW share exp/strike/type)
+  would collide on the canonical key; the adapter **raises** on those rather than silently dropping OI
+  (index support needs a settlement field in the schema - future work). Snapshot-only; build history
+  going forward. `tests/fixtures/cboe_options_sample.json` is a trimmed real pull.
+- **Live-verified**: `CboeAdapter().load("AAPL")` fetched 3,508 real contracts, validated with zero
+  issues, and the metric engine computed real GEX (Net GEX ~+1.5B, +GEX regime, ZeroGEX ~263 vs spot
+  ~308). First time the whole pipeline ran on real market data.
+- `tests/test_cboe_adapter.py` - OSI/timestamp parsers, normalize mapping, validation, dedup,
+  end-to-end parquet, registration, index-URL, plus adversarial B1 (evening rollover) and B2 (dual-settlement) cases. **121 tests total, all green.**
+- Cboe caveats: unofficial CDN (no SLA; be gentle/cache), 15-min delayed, snapshot-only, some deep
+  contracts report iv/greeks 0; do not redistribute. **Availability risk (fable nit):** after a
+  corporate action an equity carries adjusted roots (AAPL vs AAPL1) at shared expiration/strike/type,
+  which trips the same multi-root guard as index AM/PM settlement and **hard-fails that symbol's load**
+  until the adjusted series expires. Deliberate (corrupt merged data is worse than a gap); the eventual
+  schema `settlement`/deliverable field should cover adjusted series too, not just index AM/PM.
+
+**Provider decision (fable-researched, July 2026, verified live):** for a *historical* backtest the
+cheap self-serve options-with-greeks vendors are **Alpha Vantage Premium** ($49.99/mo, 2008+ history)
+or upgrading the existing **EODHD** account ($39.99/mo, ~Q4 2023+). Cheapest broad **multi-asset**
+future platform = **Polygon.io** (~$29/mo: stocks/options/forex/crypto). **IBKR** (account on hand)
+is the future *live/forward + execution* layer, not a historical-backtest source. `.env` holds the
+(valid, free-tier) EODHD token; it works for stock EOD and will unlock options if upgraded.
+
 ### Two validation passes already incorporated
 1. Round 1 (claims-only; reviewer couldn't see the docs) - fixed GEX formula framing (share vs
    dollar-per-1%-move), Polygon history (~2014 trades/aggs), ORATS 1-min (Aug 2020), Alpha Vantage
@@ -196,13 +228,13 @@ set; the rest are queued for later phases (see below).
 
 ## Open threads / next steps
 
-- **On GitHub (`origin`, default `main`):** M0-M5 are all **merged to `main`** (PRs #1,#3,#4,#5,#6).
-  Review-hardening phase 1 is on branch `phase1-review-hardening` (PR pending). Recreate the env with
-  `python3 -m venv .venv && .venv/bin/pip install -r requirements.lock.txt`; run `.venv/bin/python -m
-  unittest discover -s tests -v`.
-- **M0 - M5 done + review-hardening phase 1** (fable must-fix set). The offline engine is functionally
-  complete end-to-end (adapter -> canonical parquet -> metrics/proxies -> signal -> point-in-time
-  backtest -> significance scorecard), 100 passing tests on synthetic/fixture data.
+- **On GitHub (`origin`, default `main`):** M0-M5 and review-hardening phase 1 are all **merged to
+  `main`** (PRs #1,#3,#4,#5,#6,#7). The Cboe adapter is on branch `phase2-cboe-adapter` (PR pending).
+  Recreate the env with `python3 -m venv .venv && .venv/bin/pip install -r requirements.lock.txt`;
+  run `.venv/bin/python -m unittest discover -s tests -v`.
+- **M0 - M5 done + review-hardening phase 1 + Cboe adapter.** The engine is complete end-to-end
+  (adapter -> canonical parquet -> metrics/proxies -> signal -> point-in-time backtest -> significance
+  scorecard) and now runs on **real** options data via Cboe. **121 passing tests.**
 - **Review loop:** the workflow is - implement a batch of fable findings -> have fable re-review the
   branch -> next batch. Re-review by spawning a general-purpose agent on model `fable`, read-only,
   pointed at `prompts/code_review_prompt.md` (see that file's `## PROMPT` section).
@@ -215,12 +247,15 @@ set; the rest are queued for later phases (see below).
   empty target-intersection and multi-snapshot frames), F14/F15 (rebalance band; short/borrow model +
   weight-range guard), plus F18-F21 cleanups. Full list + evidence in the review (and reproducible via
   the fable re-review).
-- **What's left to run it for real (needs a live `EODHD_API_TOKEN`):**
-  1. Build `bars` (open/close) from the EODHD stock EOD call (already returns OHLC) - a thin adapter
-     step; then pull a range of daily chains + underlying closes for one symbol.
-  2. Persist chains via `io.write_canonical`, compute per-date snapshots, run `regime_signal` ->
-     `scorecard`. Keep the negative result if the rule doesn't beat baselines net of costs.
-  Demo token only returns AAPL sample data; EODHD options history reaches only ~Q4 2023.
+- **Running it for real now that Cboe works (free, no token):**
+  1. `CboeAdapter().load(symbol)` gives a real, validated chain today; the metric/proxy suite runs on
+     it directly (verified on AAPL).
+  2. Cboe is snapshot-only, so a *historical* backtest needs history. Two paths: (a) a daily EOD
+     snapshot job that persists via `io.write_canonical` and accumulates history going forward (free,
+     slow); or (b) buy history (Alpha Vantage Premium / EODHD upgrade) for an instant backfill.
+  3. For a first backtest, build `bars` (open/close) from a stock OHLC source (EODHD stock EOD works
+     even on the free token, or Cboe/other), then `regime_signal` -> `scorecard`. Expect it to be
+     underpowered (F4); keep the honest negative/inconclusive result.
 - **M6 (optional, deeper history / greek quality):** add an ORATS or Polygon `ChainAdapter` behind the
   same interface and run the cross-vendor comparison. Greek source is already recorded per row
   (`_greek_source`), so results are comparable.
