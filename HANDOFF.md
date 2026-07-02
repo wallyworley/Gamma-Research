@@ -202,7 +202,11 @@ add-on). A fable provider search found a zero-cost path we can use TODAY:
 - `tests/test_cboe_adapter.py` - OSI/timestamp parsers, normalize mapping, validation, dedup,
   end-to-end parquet, registration, index-URL, plus adversarial B1 (evening rollover) and B2 (dual-settlement) cases. **121 tests total, all green.**
 - Cboe caveats: unofficial CDN (no SLA; be gentle/cache), 15-min delayed, snapshot-only, some deep
-  contracts report iv/greeks 0; do not redistribute.
+  contracts report iv/greeks 0; do not redistribute. **Availability risk (fable nit):** after a
+  corporate action an equity carries adjusted roots (AAPL vs AAPL1) at shared expiration/strike/type,
+  which trips the same multi-root guard as index AM/PM settlement and **hard-fails that symbol's load**
+  until the adjusted series expires. Deliberate (corrupt merged data is worse than a gap); the eventual
+  schema `settlement`/deliverable field should cover adjusted series too, not just index AM/PM.
 
 **Provider decision (fable-researched, July 2026, verified live):** for a *historical* backtest the
 cheap self-serve options-with-greeks vendors are **Alpha Vantage Premium** ($49.99/mo, 2008+ history)

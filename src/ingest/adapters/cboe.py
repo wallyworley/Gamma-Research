@@ -20,7 +20,9 @@ Design notes:
     `quote_ts` is anchored to that session's close (16:00 ET, in UTC) - the same
     model as the EODHD adapter. (Assumes the fetch happens during or after the
     session it reports, not in the pre-dawn ET window; and each pull is treated as
-    a snapshot of that session, stamped at its close.)
+    a snapshot of that session, stamped at its close. An evening capture's
+    `current_price` may include after-hours ticks yet is stamped as-of the close;
+    option quotes are frozen at the close, so the spot/label mismatch is small.)
   * Exchange open interest is a prior-session figure, so `oi_asof_date` is stamped
     T-1 weekday from the session date (`oi_lag_days`, default 1). Exchange
     convention, but weekday-only, NOT holiday-aware (F1).
@@ -199,6 +201,11 @@ class CboeAdapter(ChainAdapter):
         if skipped_osi or skipped_expired:
             _log.warning("Cboe %s: skipped %d unparseable + %d expired contract(s)",
                          symbol.upper(), skipped_osi, skipped_expired)
+        if not rows:
+            n = len(data.get("options", []) or [])
+            raise ValueError(
+                f"Cboe {symbol.upper()}: no valid contracts (skipped {skipped_osi} unparseable, "
+                f"{skipped_expired} expired of {n}); refusing to emit an empty chain")
 
         df = pd.DataFrame(rows, columns=field_names())
         df["quote_ts"] = pd.to_datetime(df["quote_ts"], utc=True)

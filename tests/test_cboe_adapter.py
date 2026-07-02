@@ -120,6 +120,15 @@ class TestCboeNormalize(unittest.TestCase):
         self.assertEqual(schema.validate_frame(df), [])
         self.assertEqual(len(df), 6)
 
+    def test_all_expired_refuses_empty_chain(self):
+        # A payload whose contracts all precede its own session -> every row dropped
+        # as expired -> the adapter refuses to emit an empty validated chain.
+        from src.ingest.adapters.cboe import CboeAdapter
+        raw = _load_raw()
+        raw["timestamp"] = "2026-07-20 20:00:00"   # session 2026-07-20; all exps earlier
+        with self.assertRaises(ValueError):
+            CboeAdapter().normalize(raw, symbol="AAPL")
+
     def test_index_dual_settlement_raises(self):
         # B2: SPX (AM-settled) and SPXW (PM-settled) at the same expiration/strike/
         # type are distinct contracts; merging would silently drop OI, so raise.
