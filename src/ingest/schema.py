@@ -72,8 +72,8 @@ CANONICAL_FIELDS: tuple[Field, ...] = (
     Field("open_interest", "int64", "Int64", True, "size",
           "contracts outstanding; typically T-1 for EOD sources"),
     Field("oi_asof_date", "date", "datetime64[ns]", True, "size",
-          "session the open_interest is as-of; null => treat as T-1 of quote_ts. "
-          "Must be <= quote_ts date (anti-lookahead)."),
+          "session the open_interest is as-of (adapters should stamp it). Null = unknown; "
+          "no layer infers a value from it. Enforced <= quote_ts date (anti-lookahead)."),
     Field("volume", "int64", "Int64", True, "size", "contract volume (nullable)"),
     # --- vol / greeks -----------------------------------------------------
     Field("iv", "float64", "Float64", True, "vol", "implied vol; vendor or self-computed"),

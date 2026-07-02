@@ -73,8 +73,9 @@ are reconstructed from public sources and tagged known / inferred / unknown-prop
   onto the canonical schema. Verified field names against the live API.
 - **Key finding:** the options payload has **no underlying spot** (only a 2-decimal `moneyness`), so
   the adapter makes a second call to the EOD stock endpoint (`/api/eod/{SYM}.US`) and attaches that
-  day's `close` as `underlying_price`. `oi_asof_date` left null (undisclosed OI timing => schema's
-  T-1 convention). `quote_ts` = equity close (16:00 America/New_York, DST-aware) in UTC.
+  day's `close` as `underlying_price`. `oi_asof_date` is stamped (default prior weekday,
+  `oi_lag_days=1`) as an explicit **unverified** OI-timing assumption (see F1 in review hardening
+  below). `quote_ts` = equity close (16:00 America/New_York, DST-aware) in UTC.
 - Split cleanly: `fetch_raw` = live HTTP (paginated chain + underlying close), `normalize` /
   `_extract_records` = pure mapping, unit-tested against a recorded fixture
   (`tests/fixtures/eodhd_options_eod_sample.json`).
@@ -158,8 +159,11 @@ set; the rest are queued for later phases (see below).
 - **F5** (silent double-count): `validate_records`/`validate_frame` now reject duplicate `PRIMARY_KEY`
   rows; `EodhdAdapter.normalize` de-dups with a loud `logging.warning`.
 - **F6** (dead config): removed `fill_timing` (was ignored; `allow_same_bar_fill` is the real knob);
-  `half_spread_cost: bool` -> `half_spread_bps: float`, now **wired** into the backtester cost. No more
-  config-hash-changing-with-no-effect.
+  `half_spread_cost: bool` -> `half_spread_bps: float`, now **wired** into the backtester cost. NB this
+  fixed only the two knobs F6 named; several `pricer.*` knobs (`model`, `iv_method`, `iv_tol`,
+  `iv_max_iter`, `iv_vol_lo`, `iv_vol_hi`) and `backtest.base_currency` are still hashed but have no
+  consumer yet (reserved for self-computed greeks / multi-currency; no IV solver exists today), so
+  `config_hash()` is not yet a clean function of only effective knobs. Tracked for a later phase.
 - **F1** (OI timing lie): deleted the false "the backtester/metric engine aligns OI T-1" docstrings.
   `EodhdAdapter` now **stamps `oi_asof_date`** (default prior business day, `oi_lag_days=1`), a documented
   UNVERIFIED assumption. Nothing shifts OI across time; the metric docstrings now say so.

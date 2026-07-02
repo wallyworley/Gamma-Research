@@ -22,12 +22,16 @@ Two facts drive the design:
     document what session its `open_interest` is as-of. Following the standard
     convention (OCC publishes a session's OI the next morning, so the freshest OI
     knowable at date T's close is session T-1's), the adapter stamps
-    `oi_asof_date = T - oi_lag_days business days` (default 1). Nothing downstream
-    shifts OI across time; a single snapshot just uses OI as-of that stamped date.
-    **VERIFY before trusting live results (review finding F1):** fetch date T and
-    T+1 for one symbol and compare `open_interest`; if EODHD already reports the
-    T-1 figure under date T, keep `oi_lag_days=1`; if it reports same-session OI,
-    set `oi_lag_days=0` and beware that same-session OI is not knowable at T's close.
+    `oi_asof_date = T - oi_lag_days weekdays` (default 1). NB this is a *weekday*
+    lag, weekend-aware only - it is NOT holiday/trading-calendar aware, so a lag
+    that crosses a market holiday will name a non-session date (a known, tolerated
+    imprecision on an already-unverified field; wire a market calendar if the field
+    ever gains a consumer). Nothing downstream shifts OI across time; a single
+    snapshot just uses OI as-of that stamped date. **VERIFY before trusting live
+    results (review finding F1):** fetch date T and T+1 for one symbol and compare
+    `open_interest`; if EODHD already reports the T-1 figure under date T, keep
+    `oi_lag_days=1`; if it reports same-session OI, set `oi_lag_days=0` and beware
+    that same-session OI is not knowable at T's close.
 
 **Chain-completeness caveat (review finding F2, UNVERIFIED):** `fetch_raw` filters
 the EOD options endpoint by `tradetime`. If `tradetime` is a last-trade field,
@@ -108,14 +112,17 @@ class EodhdAdapter(ChainAdapter):
 
         self.api_token = api_token or os.environ.get("EODHD_API_TOKEN")
         self.exchange = exchange
-        # Business-day lag stamped into oi_asof_date (see module docstring, F1).
+        # Weekday lag stamped into oi_asof_date (see module docstring, F1).
         # 1 = standard "OI is prior session"; 0 = same-session (only if verified).
         self.oi_lag_days = oi_lag_days
         self.options_url = options_url
         self.eod_url = eod_url
 
     def _oi_asof_date(self, quote_date: date):
-        """The session the open interest is assumed as-of (quote_date - lag BDays)."""
+        """Assumed OI-as-of session: quote_date - oi_lag_days weekdays.
+
+        Weekend-aware only, NOT holiday-aware (F1); see class docstring.
+        """
         if self.oi_lag_days <= 0:
             return quote_date
         stamped = pd.Timestamp(quote_date) - pd.tseries.offsets.BusinessDay(self.oi_lag_days)

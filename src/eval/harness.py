@@ -16,7 +16,7 @@ from ..backtest.engine import run_backtest
 from ..backtest.stats import buy_and_hold, total_return
 from ..config import EngineConfig
 from ..metrics._common import resolve_config
-from .baselines import random_entry_control
+from .baselines import permutation_control, random_entry_control
 
 _REGIMES = ("+GEX", "-GEX", "flat")
 
@@ -99,16 +99,23 @@ def _bootstrap_mean_ci(bar_returns: pd.Series, *, seed: int, n: int,
     return (float(lo), float(hi))
 
 
+def _percentile_beaten(strat_ret: float, control_returns: np.ndarray) -> float:
+    """Fraction of controls the strategy strictly beats (NaN if no controls)."""
+    return float(np.mean(strat_ret > control_returns)) if control_returns.size else float("nan")
+
+
 def scorecard(bars: pd.DataFrame, target_position, *, config: EngineConfig | None = None,
-              regimes: pd.Series | None = None, n_controls: int = 1000,
-              random_seed: int = 0, bootstrap_n: int = 1000) -> dict:
-    """A reproducible scorecard: rule vs an EXPOSURE-MATCHED control, with CIs.
+              regimes: pd.Series | None = None, n_permutations: int = 1000,
+              n_controls: int = 1000, random_seed: int = 0, bootstrap_n: int = 1000) -> dict:
+    """A reproducible scorecard: rule vs sign-safe permutations + baselines, with CIs.
 
     Replaces the old naked `beats_*` booleans (which an informationless always-in
-    signal passes, review finding F3). The random control is matched to the
-    strategy's realized exposure, so the reported `strategy_percentile` measures
-    timing skill, not beta; a bootstrap CI on the mean bar return and a Sharpe are
-    included so a single lucky path cannot read as edge. Stamped with config_hash().
+    signal passed, review finding F3). The **primary** timing test is
+    `permutation_test`: the strategy vs shuffles of its OWN weights, which match
+    exposure, sign (long AND short), and turnover, so `strategy_percentile` there
+    measures timing skill and cannot be fooled by beta of either sign. A secondary
+    exposure-matched (long-only) random control, a bootstrap CI on the mean bar
+    return, and a Sharpe are also reported. Stamped with config_hash().
     """
     cfg = resolve_config(config)
     result = run_backtest(bars, target_position, config=cfg)
@@ -118,8 +125,16 @@ def scorecard(bars: pd.DataFrame, target_position, *, config: EngineConfig | Non
     bh_ret = total_return(buy_and_hold(bars, cfg.backtest.initial_capital))
     exposure = _exposure_fraction(target_position, bars)
 
+    # Primary: permutation test of timing skill (sign/exposure/turnover-matched).
+    perms = np.array([
+        run_backtest(bars, permutation_control(target_position, bars, seed=random_seed + k),
+                     config=cfg).stats["total_return"]
+        for k in range(n_permutations)
+    ]) if n_permutations > 0 else np.array([])
+
+    # Secondary: exposure-matched random long/flat control (directional baseline).
     controls = np.array([
-        run_backtest(bars, random_entry_control(bars, seed=random_seed + k, prob=exposure),
+        run_backtest(bars, random_entry_control(bars, seed=10_000 + random_seed + k, prob=exposure),
                      config=cfg).stats["total_return"]
         for k in range(n_controls)
     ]) if n_controls > 0 else np.array([])
@@ -133,12 +148,18 @@ def scorecard(bars: pd.DataFrame, target_position, *, config: EngineConfig | Non
         "bootstrap_mean_ci_95": _bootstrap_mean_ci(bar_returns, seed=random_seed, n=bootstrap_n),
         "buy_and_hold_return": bh_ret,
         "excess_vs_buy_and_hold": strat_ret - bh_ret,
+        "permutation_test": {
+            "n": int(n_permutations),
+            "strategy_percentile": _percentile_beaten(strat_ret, perms),
+            "mean_return": float(perms.mean()) if perms.size else float("nan"),
+        },
         "random_control": {
             "n": int(n_controls),
             "exposure_matched_prob": exposure,
+            "note": "long-only; use permutation_test for sign-safe timing",
             "mean_return": float(controls.mean()) if controls.size else float("nan"),
             "median_return": float(np.median(controls)) if controls.size else float("nan"),
-            "strategy_percentile": float(np.mean(strat_ret > controls)) if controls.size else float("nan"),
+            "strategy_percentile": _percentile_beaten(strat_ret, controls),
         },
     }
     if regimes is not None:

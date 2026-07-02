@@ -17,7 +17,8 @@ def random_entry_control(bars: pd.DataFrame, *, seed: int, weight: float = 1.0,
     """A reproducible random long/flat target-weight series over ``bars``.
 
     Each bar independently targets ``weight`` with probability ``prob`` else 0.
-    Seeded (numpy default_rng) so a scorecard is fully reproducible.
+    Seeded (numpy default_rng) so a scorecard is fully reproducible. NOTE this
+    control is LONG-ONLY; for a sign-safe timing test use permutation_control.
     """
     rng = np.random.default_rng(seed)
     draws = rng.random(len(bars))
@@ -25,4 +26,19 @@ def random_entry_control(bars: pd.DataFrame, *, seed: int, weight: float = 1.0,
     return pd.Series(weights, index=bars.index)
 
 
-__all__ = ["random_entry_control"]
+def permutation_control(target_position, bars: pd.DataFrame, *, seed: int) -> pd.Series:
+    """Time-shuffle of the strategy's OWN target weights over ``bars``.
+
+    A permutation preserves the exact multiset of weights - so it matches the
+    strategy's exposure, sign composition (long AND short), and turnover
+    distribution - and destroys only their timing. Comparing the strategy to many
+    permutations is therefore a proper test of *timing skill* that a random
+    long/flat control cannot give: an always-short rule permutes to itself and
+    earns zero percentile, closing the sign hole in exposure-only matching (F3).
+    """
+    w = pd.Series(target_position).reindex(bars.index).ffill().fillna(0.0)
+    rng = np.random.default_rng(seed)
+    return pd.Series(rng.permutation(w.to_numpy()), index=bars.index)
+
+
+__all__ = ["random_entry_control", "permutation_control"]
