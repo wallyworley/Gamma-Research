@@ -30,11 +30,12 @@ vendor-pure and clock-free; the wall-clock guards live outside it: the capture l
 drops a *dormant* chain (its derived session != the run day) and no-ops on non-trading
 days, and the nightly runner (scripts/snapshot_universe.py) refuses to run before the
 post-close window (capture.is_after_close), so a reboot-triggered catch-up can't write an
-intraday chain as EOD. **High-yield names:** the inversion ignores dividends, so the recovered
-spot runs ~q·τ low (verified live: AAPL −0.25%, AGNC ~13% yield −1.2%); it is bounded,
-one-directional, and still self-consistent with the vendor gammas for GEX. Prefer the
-`underlying_close` override on an entitled tier if penny-accurate spot on high-yielders
-matters.
+intraday chain as EOD. **High-yield names:** the inversion ignores dividends, so on the tight
+tier the recovered spot runs ~q*tau low (AAPL -0.25%, AGNC ~13% yield -1.2%), and the wider
+fallback tier (tau to 120d) roughly doubles that on high-yielders (up to ~3.5% low, CHMI).
+The bias is bounded, one-directional, and still self-consistent with the vendor gammas for
+GEX. Prefer the `underlying_close` override on an entitled tier if penny-accurate spot on
+high-yielders matters.
 
 Endpoints (auth via `Authorization: Bearer <MASSIVE_API_KEY>`, kept out of URLs):
   GET /v3/snapshot/options/{SYM}?limit=250    -> chain, paginated via `next_url`
@@ -85,8 +86,9 @@ _RETRY_CODES = frozenset({429, 500, 502, 503, 504})
 # a tight, high-precision near-ATM band first (liquid names), then a wider fallback that
 # recovers thin chains (few strikes/expiries) which would otherwise be dropped. The
 # dispersion gate still guards every tier, so a genuinely inconsistent cluster is refused
-# rather than emit a bad spot. Validated live: the fallback recovers ~half of the
-# thin-chain failures with spots within ~1-2% of the reference close.
+# rather than emit a bad spot. Validated live: the fallback recovers ~half of the thin-chain
+# failures; spots are ~1-2% of the reference close typically, but up to ~3.5% low on
+# high-yield names (the dividend bias grows with the 120d horizon, q*tau; one-directional).
 _SPOT_R = 0.045                       # flat risk-free; small effect at short tau
 _TAU_MIN = 2 / 365                    # skip 0DTE blowups
 # (tau_max, delta_lo, delta_hi, min_contracts, max_dispersion)

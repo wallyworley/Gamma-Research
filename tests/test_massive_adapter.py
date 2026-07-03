@@ -175,6 +175,36 @@ class TestMassiveDerivationGuards(unittest.TestCase):
         spot = df["underlying_price"].iloc[0]
         self.assertTrue(98.0 < spot < 101.0, f"spot={spot}")
 
+    def test_tier_order_prefers_primary_when_both_qualify(self):
+        # Both tiers can qualify but imply different medians; the tight primary tier must
+        # win (guards against a fallback-first regression the fixture can't catch).
+        sess, lu = dt.date(2026, 7, 2), 1782964800000000000
+
+        def mk(days, strike, n):
+            return [{"details": {"contract_type": "call", "strike_price": float(strike),
+                                 "expiration_date": (sess + dt.timedelta(days=days + i)).isoformat()},
+                     "greeks": {"delta": 0.5, "gamma": 0.02}, "implied_volatility": 0.30,
+                     "day": {"last_updated": lu}} for i in range(n)]
+        short = mk(28, 100.0, 6)   # tau ~30d -> implies ~99.3, qualifies the tight tier
+        long_ = mk(98, 70.0, 6)    # tau ~100d -> implies ~68, only reachable via fallback
+        df = self._adapter().normalize({"results": short + long_}, symbol="TIER")
+        spot = df["underlying_price"].iloc[0]
+        # tight-tier median (~99), NOT the fallback/blended value (~68-84)
+        self.assertGreater(spot, 95.0)
+
+    def test_widened_delta_band_used_by_fallback(self):
+        # ncdf=0.27 is outside the tight 0.30-0.70 band but inside the fallback 0.25-0.75;
+        # a chain of only such (short-tau) contracts fails the tight tier on delta alone
+        # and is recovered by the fallback.
+        sess, lu = dt.date(2026, 7, 2), 1782964800000000000
+        results = [{"details": {"contract_type": "call", "strike_price": 100.0,
+                                "expiration_date": (sess + dt.timedelta(days=38 + 2 * i)).isoformat()},
+                    "greeks": {"delta": 0.27, "gamma": 0.02}, "implied_volatility": 0.30,
+                    "day": {"last_updated": lu}} for i in range(4)]
+        df = self._adapter().normalize({"results": results}, symbol="BAND")
+        self.assertEqual(len(df), 4)
+        self.assertTrue(90.0 < df["underlying_price"].iloc[0] < 96.0)
+
     def test_non_string_expiration_is_skipped_not_fatal(self):
         # A non-string expiration_date (int) must be skipped like any malformed date,
         # not abort the load with an uncaught TypeError.

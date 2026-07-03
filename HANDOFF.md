@@ -45,7 +45,9 @@ every weekday, unattended, on the always-on OVH VPS.
 - **Reviewed:** MassiveAdapter + deploy hardened across multiple fable passes (PRs #11, #12,
   #13). VPS: Ubuntu 24.04, systemd 255, python3.12, ubuntu-owned `/opt/gamma-research`.
 - **Next:** cash-index capture (`I:` prefix + settlement), optional failure alerting
-  (`OnFailure=`), and running the metric/proxy suite + a backtest over the accumulating store.
+  (`OnFailure=`), **persist the spot-recovery tier** (e.g. a `_spot_source` column) so
+  downstream GEX can down-weight fallback-tier spots (fable nit, deferred), and running the
+  metric/proxy suite + a backtest over the accumulating store.
 
 ## What this repo is
 
