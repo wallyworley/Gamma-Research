@@ -166,10 +166,17 @@ class MassiveAdapter(ChainAdapter):
 
     name = "massive"
 
-    def __init__(self, api_key: str | None = None, *, oi_lag_days: int = 1, base_url: str = _BASE):
+    def __init__(self, api_key: str | None = None, *, oi_lag_days: int = 1, base_url: str = _BASE,
+                 index_roots: frozenset[str] = frozenset()):
         self.api_key = api_key or os.environ.get("MASSIVE_API_KEY")
         self.oi_lag_days = oi_lag_days
         self.base_url = base_url
+        # Canonical roots that are cash-settled indices on Polygon: the snapshot URL needs
+        # the `I:` prefix (`I:SPX`), but the canonical/partition symbol stays plain (`SPX`).
+        self.index_roots = frozenset(s.upper() for s in index_roots)
+
+    def _polygon_ticker(self, sym: str) -> str:
+        return f"I:{sym}" if sym in self.index_roots else sym
 
     def _get(self, url: str) -> dict[str, Any]:
         """GET a path or a full next_url with the bearer header (key never in the URL).
@@ -204,7 +211,7 @@ class MassiveAdapter(ChainAdapter):
         if quote_date is not None:                                        # R2
             _log.warning("Massive %s: quote_date=%s ignored (the snapshot is always current)",
                          symbol.upper(), quote_date)
-        sym = symbol.upper()
+        sym = self._polygon_ticker(symbol.upper())
 
         results: list[dict] = []
         url = f"/v3/snapshot/options/{sym}?limit={_PAGE_LIMIT}"
@@ -239,11 +246,11 @@ class MassiveAdapter(ChainAdapter):
             spot_source = "vendor_close"
         else:
             spot, n_used, dispersion, tier = _implied_spot(results, session_date)
-            spot_source = "implied_delta"
             if spot is None:
                 raise ValueError(
                     f"Massive {sym}: could not recover a reliable spot from greeks "
                     f"(n_used={n_used}, dispersion={dispersion})")
+            spot_source = f"implied_delta_t{tier}"   # t0 = tight tier, t1 = wider fallback
             _log.info("Massive %s: greek-implied spot %.4f from %d near-ATM contracts "
                       "(tier %d, dispersion %.4f)", sym, spot, n_used, tier, dispersion or 0.0)
 
@@ -289,6 +296,7 @@ class MassiveAdapter(ChainAdapter):
                 "delta": num(g.get("delta")), "gamma": num(g.get("gamma")),
                 "theta": num(g.get("theta")), "vega": num(g.get("vega")), "rho": None,
                 "_iv_source": self.name, "_greek_source": self.name, "_adapter": self.name,
+                "_spot_source": spot_source,
             })
 
         if not rows:
@@ -307,10 +315,25 @@ class MassiveAdapter(ChainAdapter):
                   if k not in ("quote_ts", "expiration", "oi_asof_date")}
         df = df.astype(scalar)
 
+        # De-dup vendor artifacts, but NOT settlement collisions. Two rows sharing the
+        # canonical key that are byte-identical are a vendor repeat -> safe to collapse.
+        # Two DIFFERENT contracts sharing the key (AM-settled SPX vs PM-settled SPXW at the
+        # same strike/expiry, both under I:SPX) can't be told apart by the canonical key, so
+        # collapsing would silently drop the larger side's OI (~40% on SPX). The schema can't
+        # represent settlement yet, so fail loud like cboe's B2 guard rather than corrupt.
+        pk = list(PRIMARY_KEY)
+        shares_key = df.duplicated(subset=pk, keep=False)
+        collides = shares_key & ~df.duplicated(keep=False)   # same key, not a full-row dupe
+        if collides.any():
+            n = int(df[shares_key].drop_duplicates(subset=pk).shape[0])
+            raise NotImplementedError(
+                f"Massive {sym}: {n} canonical key(s) are shared by distinct contracts "
+                "(AM/PM dual-settled index, e.g. SPX vs SPXW); collapsing would silently drop "
+                "open interest. Unsupported until settlement/OCC-root is in the schema (B2).")
         before = len(df)
-        df = df.drop_duplicates(subset=list(PRIMARY_KEY), keep="last").reset_index(drop=True)
+        df = df.drop_duplicates(subset=pk, keep="last").reset_index(drop=True)
         if len(df) < before:
-            _log.warning("Massive %s: dropped %d duplicate contract row(s)", sym, before - len(df))
+            _log.warning("Massive %s: collapsed %d exact-duplicate contract row(s)", sym, before - len(df))
         return df
 
     def load(self, symbol: str, quote_date: date | None = None, **kwargs: Any) -> pd.DataFrame:

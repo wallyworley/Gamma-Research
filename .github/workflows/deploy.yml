@@ -99,9 +99,9 @@ jobs:
             test -d .venv || python3 -m venv .venv
             .venv/bin/pip install -q --upgrade pip
             .venv/bin/pip install -q -r requirements.lock.txt
-            # Install/refresh the system timer + service (full-sudo host).
+            # Install/refresh the system timer + service (+ failure marker) on a full-sudo host.
             sudo cp deploy/systemd/gamma-snapshot.service deploy/systemd/gamma-snapshot.timer \
-              /etc/systemd/system/
+              deploy/systemd/gamma-snapshot-failure.service /etc/systemd/system/
             sudo systemctl daemon-reload
             sudo systemctl enable --now gamma-snapshot.timer
             echo "deploy complete: $(date -u --iso-8601=seconds)"

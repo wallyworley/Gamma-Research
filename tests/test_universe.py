@@ -65,6 +65,18 @@ class TestLoadUniverse(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 universe.load_universe(fetch=False, cache_path=missing, min_equities=1)
 
+    def test_include_indices_appends_capture_roots(self):
+        with tempfile.TemporaryDirectory() as d:
+            cache = os.path.join(d, "cboe_symbols.csv")
+            Path(cache).write_text(_fixture_text(), encoding="utf-8")
+            eq = universe.load_universe(fetch=False, cache_path=cache, min_equities=1)
+            with_idx = universe.load_universe(fetch=False, cache_path=cache, min_equities=1,
+                                              include_indices=True)
+        self.assertEqual(with_idx, eq + list(universe.INDEX_CAPTURE_ROOTS))
+        self.assertIn("XSP", with_idx)      # a single-root index we do capture
+        self.assertNotIn("XSP", eq)
+        self.assertNotIn("SPX", with_idx)   # dual-root: excluded (B2), captured via a follow-up
+
     def test_poisoned_download_does_not_overwrite_good_cache(self):
         # A 200-OK non-CSV body (maintenance page) parses below the floor: it must be
         # discarded, the good cache left intact, and the cached universe returned.

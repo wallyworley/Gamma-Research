@@ -89,6 +89,30 @@ class TestParquetRoundTrip(unittest.TestCase):
         self.assertEqual(len(back), 2)
         self.assertEqual(set(back["type"]), {"call", "put"})
         self.assertEqual(schema.validate_frame(back), [])
+        # Canonical dtypes on read: parquet date32 must come back as datetime64 (not
+        # object), else the metric engine's `.dt` horizon math breaks on stored data.
+        self.assertEqual(str(back["expiration"].dtype), "datetime64[ns]")
+        self.assertEqual(str(back["oi_asof_date"].dtype), "datetime64[ns]")
+        self.assertEqual(dict(back.dtypes.astype(str)), schema.pandas_dtypes())
+
+    def test_read_backfills_missing_nullable_column(self):
+        # Schema evolution: a partition written before _spot_source existed lacks the
+        # column; read_canonical must backfill it as null so old data still validates.
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        from src.ingest import io
+
+        df = canonical_frame().drop(columns=["_spot_source"])   # pre-_spot_source layout
+        with tempfile.TemporaryDirectory() as root:
+            part = os.path.join(root, schema.partition_relpath("SPY", dt.date(2024, 6, 3)))
+            os.makedirs(part, exist_ok=True)
+            pq.write_table(pa.Table.from_pandas(df, preserve_index=False),
+                           os.path.join(part, "chain.parquet"))
+            back = io.read_canonical(root, "SPY", dt.date(2024, 6, 3))
+        self.assertIn("_spot_source", back.columns)
+        self.assertTrue(back["_spot_source"].isna().all())
+        self.assertEqual(schema.validate_frame(back), [])
 
 
 if __name__ == "__main__":

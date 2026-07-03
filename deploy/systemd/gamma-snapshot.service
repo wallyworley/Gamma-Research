@@ -2,6 +2,8 @@
 Description=gamma-research nightly full-universe option-chain snapshot (Massive/Polygon)
 After=network-online.target
 Wants=network-online.target
+# Record a durable marker if the run fails (crash / nonzero exit).
+OnFailure=gamma-snapshot-failure.service
 
 [Service]
 Type=oneshot

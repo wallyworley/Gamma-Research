@@ -89,6 +89,10 @@ CANONICAL_FIELDS: tuple[Field, ...] = (
           "vendor name or pricer id that produced the greeks"),
     Field("_adapter", "string", "string", False, "provenance",
           "adapter that produced this row (ChainAdapter.name)"),
+    Field("_spot_source", "string", "string", True, "provenance",
+          "how underlying_price was derived: 'vendor_close' (an authoritative close) or "
+          "'implied_delta_t0'/'implied_delta_t1' (greek delta-inversion, primary/fallback "
+          "tier). Lets downstream down-weight fallback-tier spots. Null = unspecified."),
 )
 
 _FIELDS_BY_NAME: dict[str, Field] = {f.name: f for f in CANONICAL_FIELDS}

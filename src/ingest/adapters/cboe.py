@@ -185,6 +185,7 @@ class CboeAdapter(ChainAdapter):
                 "_iv_source": self.name,
                 "_greek_source": self.name,
                 "_adapter": self.name,
+                "_spot_source": "vendor_close",   # Cboe quote carries the underlying last
             })
 
         # Distinct OCC roots under one (expiration, strike, type) are AM/PM-settled

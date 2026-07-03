@@ -38,6 +38,15 @@ INDEX_SYMBOLS = frozenset({
     "SPX", "SPXW", "VIX", "VIXW", "NDX", "NDXP", "RUT", "RUTW", "MRUT",
     "XSP", "DJX", "OEX", "XEO", "NANOS", "VXST",
 })
+# Cash-settled index roots we capture (via Polygon's `I:` prefix). ONLY single-OCC-root
+# indices: their snapshot has no key collisions. SPX/NDX/RUT are intentionally EXCLUDED for
+# now: `I:SPX` bundles AM-settled SPX *and* PM-settled SPXW, which share (expiration, strike,
+# type) - the whole canonical key - so they can't be stored without silently dropping ~40% of
+# SPX OI (the adapter now fails loud on this, B2). Capturing them correctly needs settlement /
+# OCC-root in the schema key (follow-up). XSP is the mini-S&P (=SPX/10) and IS single-root, so
+# it gives a clean S&P read today. VIX excluded too (settles to futures -> inversion is a
+# forward, not spot). All three below delta-invert sanely: XSP 747.8, DJX 528.8, OEX 3665.6.
+INDEX_CAPTURE_ROOTS = ("XSP", "DJX", "OEX")
 # Canonical, path-safe ticker charset (matches schema.partition_relpath's guard).
 _SYMBOL_RE = re.compile(r"[A-Z0-9.]{1,6}$")
 
@@ -74,13 +83,15 @@ def parse_symbol_directory(text: str) -> tuple[list[str], list[str]]:
 
 
 def load_universe(*, url: str = _URL, cache_path: str | None = None,
-                  fetch: bool = True, min_equities: int = _MIN_EQUITIES) -> list[str]:
-    """The optionable **equity** underlyings (indices excluded; see module docstring).
+                  fetch: bool = True, min_equities: int = _MIN_EQUITIES,
+                  include_indices: bool = False) -> list[str]:
+    """The optionable **equity** underlyings (indices excluded by default).
 
     Downloads the Cboe directory, parses it, and only then refreshes the cache - and
     only if the parse clears ``min_equities`` (a non-CSV 200 body is discarded, never
     cached). On download failure or a too-small body, falls back to the cache. Raises if
-    no usable source exists (download unusable AND no/again-too-small cache).
+    no usable source exists (download unusable AND no/again-too-small cache). With
+    ``include_indices`` the cash-settled index roots (``INDEX_CAPTURE_ROOTS``) are appended.
     """
     cache_path = cache_path or _default_cache()
 
@@ -96,7 +107,7 @@ def load_universe(*, url: str = _URL, cache_path: str | None = None,
                     _log.warning("could not refresh universe cache %s: %s", cache_path, e)
                 _log.info("universe: %d optionable equities (+%d indices) [live]",
                           len(equities), len(indices))
-                return equities
+                return equities + (list(INDEX_CAPTURE_ROOTS) if include_indices else [])
             _log.warning("universe download parsed only %d equities (< %d floor); "
                          "discarding it and falling back to cache", len(equities), min_equities)
         except Exception as e:  # noqa: BLE001 - fall back to cache on any download/parse error
@@ -109,7 +120,7 @@ def load_universe(*, url: str = _URL, cache_path: str | None = None,
         if len(equities) >= min_equities:
             _log.info("universe: %d optionable equities (+%d indices) [cache %s]",
                       len(equities), len(indices), cache_path)
-            return equities
+            return equities + (list(INDEX_CAPTURE_ROOTS) if include_indices else [])
         raise RuntimeError(f"universe cache {cache_path} parsed only {len(equities)} "
                            f"equities (< {min_equities}); refusing to run on a bad universe")
     raise RuntimeError(f"universe unavailable: no usable download and no cache at {cache_path}")
@@ -126,4 +137,4 @@ def to_polygon_ticker(symbol: str) -> str:
 
 
 __all__ = ["load_universe", "parse_symbol_directory", "is_index",
-           "to_polygon_ticker", "INDEX_SYMBOLS"]
+           "to_polygon_ticker", "INDEX_SYMBOLS", "INDEX_CAPTURE_ROOTS"]
