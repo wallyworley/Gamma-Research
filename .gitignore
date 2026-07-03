@@ -20,3 +20,6 @@ venv/
 # Generated (regenerate with the matching scripts/build_*_prompt.py)
 prompts/validation_prompt.FILLED.md
 prompts/code_review_prompt.FILLED.md
+
+# Local Claude Code config (per-user, not project)
+.claude/
