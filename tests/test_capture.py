@@ -65,11 +65,55 @@ class TestCapture(unittest.TestCase):
                     raise ValueError("boom")
                 return good
 
+        # today == the fixture's session (2026-07-02) so the good symbol passes the
+        # session guard; BAD raises and is isolated.
         with tempfile.TemporaryDirectory() as root:
-            res = capture_many(["AAPL", "BAD"], root, adapter=Mixed(), today=dt.date(2026, 6, 3))
+            res = capture_many(["AAPL", "BAD"], root, adapter=Mixed(), today=dt.date(2026, 7, 2))
         self.assertTrue(res["AAPL"]["ok"])
         self.assertFalse(res["BAD"]["ok"])
         self.assertIn("boom", res["BAD"]["error"])
+
+    def test_capture_many_concurrent_isolates_failures(self):
+        # Threaded branch (max_workers>1): a raising symbol must not abort the batch,
+        # and every symbol must still be keyed in the result.
+        from src.ingest.capture import capture_many
+
+        good = self._fixture_frame()
+
+        class Mixed:
+            def load(self, symbol):
+                if symbol == "BAD":
+                    raise ValueError("boom")
+                return good
+
+        syms = ["AAA", "BAD", "CCC", "DDD"]
+        with tempfile.TemporaryDirectory() as root:
+            res = capture_many(syms, root, adapter=Mixed(), today=dt.date(2026, 7, 2),
+                               max_workers=4)
+        self.assertEqual(set(res), set(syms))
+        self.assertTrue(res["AAA"]["ok"] and res["CCC"]["ok"] and res["DDD"]["ok"])
+        self.assertFalse(res["BAD"]["ok"])
+        self.assertIn("boom", res["BAD"]["error"])
+
+    def test_stale_session_is_skipped_not_written(self):
+        # A frame whose session != the run day (dormant/stale chain) must NOT be written
+        # to the wrong day's partition; it is reported skipped.
+        from src.ingest.capture import capture_snapshot, capture_many
+
+        good = self._fixture_frame()  # session 2026-07-02
+
+        class Fake:
+            def load(self, symbol):
+                return good
+
+        with tempfile.TemporaryDirectory() as root:
+            res = capture_snapshot(Fake(), "AAPL", root, expected_session=dt.date(2026, 7, 1))
+            self.assertFalse(res["ok"])
+            self.assertTrue(res.get("skipped"))
+            self.assertFalse(os.path.isdir(os.path.join(root, "symbol=AAPL")))
+            # And through capture_many with a mismatched run day:
+            res2 = capture_many(["AAPL"], root, adapter=Fake(), today=dt.date(2026, 7, 1))
+            self.assertFalse(res2["AAPL"]["ok"])
 
 
 @unittest.skipUnless(_HAVE_STACK, "pandas not installed")
@@ -101,6 +145,20 @@ class TestTradingDayGuard(unittest.TestCase):
         res = capture_many(["X"], "/tmp/x", adapter=Fake(), today=day)
         self.assertNotIn("__skipped__", res)
         self.assertFalse(res["X"]["ok"])
+
+
+class TestAfterCloseGate(unittest.TestCase):
+    """Stdlib-only: the after-close time gate (no data stack needed)."""
+
+    def test_after_close_gate(self):
+        from zoneinfo import ZoneInfo
+
+        from src.ingest.capture import is_after_close
+        ET = ZoneInfo("America/New_York")
+        self.assertFalse(is_after_close(dt.datetime(2026, 7, 2, 9, 30, tzinfo=ET)))   # open
+        self.assertFalse(is_after_close(dt.datetime(2026, 7, 2, 16, 0, tzinfo=ET)))   # close, pre-buffer
+        self.assertTrue(is_after_close(dt.datetime(2026, 7, 2, 16, 15, tzinfo=ET)))   # buffer met
+        self.assertTrue(is_after_close(dt.datetime(2026, 7, 2, 17, 30, tzinfo=ET)))   # nightly fire
 
 
 if __name__ == "__main__":

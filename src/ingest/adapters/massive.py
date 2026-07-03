@@ -25,11 +25,12 @@ whole frame by a session and mispriced spot by ~4.6% (review blocker). So instea
 **Run after the US close (EOD adapter, like eodhd/cboe).** The snapshot is always
 "current": derived session/spot/quote_ts describe whatever the chain reflects *now*.
 After the close that is the just-closed session with 0DTE still present; an intraday run
-would stamp an in-progress session with a *future* 16:00 close time. Two known edges,
-both caught downstream by the capture layer's wall-clock/trading-day guard rather than
-here (normalize stays vendor-pure, clock-free): (1) a fully *dormant* chain where nothing
-traded today derives a stale session from the newest old day bar; (2) an accidental
-intraday run. **High-yield names:** the inversion ignores dividends, so the recovered
+would stamp an in-progress session with a *future* 16:00 close time. normalize stays
+vendor-pure and clock-free; the wall-clock guards live outside it: the capture layer
+drops a *dormant* chain (its derived session != the run day) and no-ops on non-trading
+days, and the nightly runner (scripts/snapshot_universe.py) refuses to run before the
+post-close window (capture.is_after_close), so a reboot-triggered catch-up can't write an
+intraday chain as EOD. **High-yield names:** the inversion ignores dividends, so the recovered
 spot runs ~q·τ low (verified live: AAPL −0.25%, AGNC ~13% yield −1.2%); it is bounded,
 one-directional, and still self-consistent with the vendor gammas for GEX. Prefer the
 `underlying_close` override on an entitled tier if penny-accurate spot on high-yielders

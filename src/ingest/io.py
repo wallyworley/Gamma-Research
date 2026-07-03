@@ -37,7 +37,16 @@ def write_canonical(frame: "pd.DataFrame", root: str, symbol: str,
     part_dir = os.path.join(root, partition_relpath(symbol, quote_date))
     os.makedirs(part_dir, exist_ok=True)
     path = os.path.join(part_dir, _FILENAME)
-    pq.write_table(table, path)
+    # Write to a sibling temp then atomically rename: a SIGTERM/OOM/reboot mid-write,
+    # or a re-capture overwriting an existing partition, can never leave a truncated
+    # chain.parquet in the permanent store (os.replace is atomic on the same fs).
+    tmp = os.path.join(part_dir, f".{_FILENAME}.{os.getpid()}.tmp")
+    try:
+        pq.write_table(table, tmp)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
     return path
 
 

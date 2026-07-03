@@ -1,0 +1,16 @@
+[Unit]
+Description=gamma-research nightly full-universe option-chain snapshot (Massive/Polygon)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/gamma-research
+# MASSIVE_API_KEY + GAMMA_DATA_DIR live here (rsync excludes .env; provisioned once).
+EnvironmentFile=/opt/gamma-research/.env
+ExecStart=/opt/gamma-research/.venv/bin/python scripts/snapshot_universe.py
+# The universe run fans out ~5,300 symbols; give it room but don't hang forever.
+TimeoutStartSec=10800
+Nice=10
