@@ -159,6 +159,35 @@ class TestMassiveDerivationGuards(unittest.TestCase):
         self.assertTrue((df["underlying_price"] == 250.0).all())
         self.assertTrue((df["_spot_source"] == "vendor_close").all())
 
+    def _near_atm(self, n=5):
+        sess, lu = dt.date(2026, 7, 2), 1782964800000000000
+        return [{"details": {"contract_type": "call", "strike_price": 100.0,
+                             "expiration_date": (sess + dt.timedelta(days=20 + i)).isoformat()},
+                 "greeks": {"delta": 0.5, "gamma": 0.02}, "implied_volatility": 0.30,
+                 "day": {"last_updated": lu}} for i in range(n)]
+
+    def test_settlement_collision_fails_loud(self):
+        # Two DISTINCT contracts (AM SPX vs PM SPXW) share (exp, strike, type) with different
+        # OI: collapsing would silently drop the larger side, so fail loud (B2), not corrupt.
+        lu = 1782964800000000000
+        collide = [{"details": {"contract_type": "call", "strike_price": 500.0,
+                                "expiration_date": "2026-07-10"},
+                    "greeks": {"delta": 0.99, "gamma": 0.001}, "implied_volatility": 0.30,
+                    "open_interest": oi, "day": {"last_updated": lu}} for oi in (200000, 500)]
+        with self.assertRaises(NotImplementedError):
+            self._adapter().normalize({"results": self._near_atm() + collide}, symbol="SPX")
+
+    def test_exact_duplicate_rows_collapse(self):
+        # Byte-identical vendor repeats collapse quietly (not a settlement collision).
+        lu = 1782964800000000000
+        dupe = {"details": {"contract_type": "put", "strike_price": 100.0,
+                            "expiration_date": "2026-07-20"},
+                "greeks": {"delta": -0.5, "gamma": 0.02}, "implied_volatility": 0.30,
+                "open_interest": 10, "day": {"last_updated": lu}}
+        df = self._adapter().normalize({"results": self._near_atm() + [dupe, dict(dupe)]},
+                                       symbol="X")
+        self.assertEqual(len(df), 6)   # 5 calls + the put once (dup collapsed)
+
     def test_index_ticker_mapping(self):
         # Cash indices fetch with the Polygon `I:` prefix but stay plain in the canonical
         # symbol/partition; non-index symbols are untouched.

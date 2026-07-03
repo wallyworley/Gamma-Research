@@ -315,10 +315,25 @@ class MassiveAdapter(ChainAdapter):
                   if k not in ("quote_ts", "expiration", "oi_asof_date")}
         df = df.astype(scalar)
 
+        # De-dup vendor artifacts, but NOT settlement collisions. Two rows sharing the
+        # canonical key that are byte-identical are a vendor repeat -> safe to collapse.
+        # Two DIFFERENT contracts sharing the key (AM-settled SPX vs PM-settled SPXW at the
+        # same strike/expiry, both under I:SPX) can't be told apart by the canonical key, so
+        # collapsing would silently drop the larger side's OI (~40% on SPX). The schema can't
+        # represent settlement yet, so fail loud like cboe's B2 guard rather than corrupt.
+        pk = list(PRIMARY_KEY)
+        shares_key = df.duplicated(subset=pk, keep=False)
+        collides = shares_key & ~df.duplicated(keep=False)   # same key, not a full-row dupe
+        if collides.any():
+            n = int(df[shares_key].drop_duplicates(subset=pk).shape[0])
+            raise NotImplementedError(
+                f"Massive {sym}: {n} canonical key(s) are shared by distinct contracts "
+                "(AM/PM dual-settled index, e.g. SPX vs SPXW); collapsing would silently drop "
+                "open interest. Unsupported until settlement/OCC-root is in the schema (B2).")
         before = len(df)
-        df = df.drop_duplicates(subset=list(PRIMARY_KEY), keep="last").reset_index(drop=True)
+        df = df.drop_duplicates(subset=pk, keep="last").reset_index(drop=True)
         if len(df) < before:
-            _log.warning("Massive %s: dropped %d duplicate contract row(s)", sym, before - len(df))
+            _log.warning("Massive %s: collapsed %d exact-duplicate contract row(s)", sym, before - len(df))
         return df
 
     def load(self, symbol: str, quote_date: date | None = None, **kwargs: Any) -> pd.DataFrame:

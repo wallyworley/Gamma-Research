@@ -38,12 +38,15 @@ INDEX_SYMBOLS = frozenset({
     "SPX", "SPXW", "VIX", "VIXW", "NDX", "NDXP", "RUT", "RUTW", "MRUT",
     "XSP", "DJX", "OEX", "XEO", "NANOS", "VXST",
 })
-# Cash-settled index roots we actually capture (via Polygon's `I:` prefix). Each root's
-# snapshot already includes its weekly/AM/PM series, so we do NOT list the W-variants here
-# (that would double-count). All six delta-invert to sane levels (SPX 7478, XSP=SPX/10,
-# NDX 29308, RUT 2994, DJX 528, OEX 3666). VIX is intentionally excluded: its options settle
-# to VIX futures, so delta-inversion recovers a forward, not the index spot (a later pass).
-INDEX_CAPTURE_ROOTS = ("SPX", "NDX", "RUT", "XSP", "DJX", "OEX")
+# Cash-settled index roots we capture (via Polygon's `I:` prefix). ONLY single-OCC-root
+# indices: their snapshot has no key collisions. SPX/NDX/RUT are intentionally EXCLUDED for
+# now: `I:SPX` bundles AM-settled SPX *and* PM-settled SPXW, which share (expiration, strike,
+# type) - the whole canonical key - so they can't be stored without silently dropping ~40% of
+# SPX OI (the adapter now fails loud on this, B2). Capturing them correctly needs settlement /
+# OCC-root in the schema key (follow-up). XSP is the mini-S&P (=SPX/10) and IS single-root, so
+# it gives a clean S&P read today. VIX excluded too (settles to futures -> inversion is a
+# forward, not spot). All three below delta-invert sanely: XSP 747.8, DJX 528.8, OEX 3665.6.
+INDEX_CAPTURE_ROOTS = ("XSP", "DJX", "OEX")
 # Canonical, path-safe ticker charset (matches schema.partition_relpath's guard).
 _SYMBOL_RE = re.compile(r"[A-Z0-9.]{1,6}$")
 

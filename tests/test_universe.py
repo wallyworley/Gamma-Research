@@ -73,8 +73,9 @@ class TestLoadUniverse(unittest.TestCase):
             with_idx = universe.load_universe(fetch=False, cache_path=cache, min_equities=1,
                                               include_indices=True)
         self.assertEqual(with_idx, eq + list(universe.INDEX_CAPTURE_ROOTS))
-        self.assertIn("SPX", with_idx)
-        self.assertNotIn("SPX", eq)
+        self.assertIn("XSP", with_idx)      # a single-root index we do capture
+        self.assertNotIn("XSP", eq)
+        self.assertNotIn("SPX", with_idx)   # dual-root: excluded (B2), captured via a follow-up
 
     def test_poisoned_download_does_not_overwrite_good_cache(self):
         # A 200-OK non-CSV body (maintenance page) parses below the floor: it must be
