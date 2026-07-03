@@ -13,7 +13,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Gate the deploy on the suite passing against the EXACT deployed combo (python3.12 +
+  # requirements.lock.txt). ci.yml only tests 3.11/3.13 with the loose requirements, so
+  # without this a red suite -- or a 3.12/lock-specific breakage -- would still deploy.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Contract tests (stdlib only)
+        run: python -m unittest discover -s tests -v
+      - name: Install locked deps (VPS-identical)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock.txt
+      - name: Full suite
+        run: python -m unittest discover -s tests -v
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

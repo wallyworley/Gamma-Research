@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -22,6 +22,17 @@ from .adapter import ChainAdapter
 
 _log = logging.getLogger(__name__)
 _ET = ZoneInfo("America/New_York")
+
+# An EOD snapshot must be taken after the 16:00 ET close (a 15-min buffer for the feed
+# to settle); before that the chain is an in-progress session and would be mislabeled as
+# the close. The nightly runner gates on this so a reboot-triggered catch-up that fires
+# in the morning no-ops instead of writing intraday data as EOD.
+_MIN_EOD_RUN_ET = time(16, 15)
+
+
+def is_after_close(now_et: datetime | None = None) -> bool:
+    """True if the current ET wall-clock is past the post-close buffer (safe for EOD)."""
+    return (now_et or datetime.now(_ET)).time() >= _MIN_EOD_RUN_ET
 
 # NYSE full-day market holidays (weekday closures only; weekends handled separately).
 # Hardcoded to avoid a calendar dependency - MAINTAIN yearly or swap for the
@@ -119,4 +130,4 @@ def capture_many(symbols, root: str, *, adapter: ChainAdapter,
     return results
 
 
-__all__ = ["capture_snapshot", "capture_many", "is_trading_day"]
+__all__ = ["capture_snapshot", "capture_many", "is_trading_day", "is_after_close"]

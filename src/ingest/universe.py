@@ -26,6 +26,10 @@ _log = logging.getLogger(__name__)
 _URL = "https://www.cboe.com/us/options/symboldir/equity_index_options/?download=csv"
 _SYMBOL_COL = "Stock Symbol"
 _HTTP_TIMEOUT = 60
+# A healthy Cboe directory carries ~5,300 names. A body that parses to far fewer is a
+# maintenance page / truncated response, not the directory: never cache it, never trust
+# it (guards against poisoning the only fallback copy of a source with no history).
+_MIN_EQUITIES = 1000
 
 # Cash-settled indices in the Cboe directory: they need Polygon's ``I:`` prefix and a
 # distinct settlement handling, so the equity nightly excludes them (surfaced via
@@ -70,36 +74,45 @@ def parse_symbol_directory(text: str) -> tuple[list[str], list[str]]:
 
 
 def load_universe(*, url: str = _URL, cache_path: str | None = None,
-                  fetch: bool = True) -> list[str]:
+                  fetch: bool = True, min_equities: int = _MIN_EQUITIES) -> list[str]:
     """The optionable **equity** underlyings (indices excluded; see module docstring).
 
-    Downloads the Cboe directory and refreshes the cache; on download failure falls back
-    to the cache. Raises only if both the download fails and no cache exists.
+    Downloads the Cboe directory, parses it, and only then refreshes the cache - and
+    only if the parse clears ``min_equities`` (a non-CSV 200 body is discarded, never
+    cached). On download failure or a too-small body, falls back to the cache. Raises if
+    no usable source exists (download unusable AND no/again-too-small cache).
     """
     cache_path = cache_path or _default_cache()
-    text: str | None = None
+
     if fetch:
         try:
             text = _download(url)
-        except Exception as e:  # noqa: BLE001 - fall back to cache on any network error
+            equities, indices = parse_symbol_directory(text)
+            if len(equities) >= min_equities:
+                try:
+                    Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
+                    Path(cache_path).write_text(text, encoding="utf-8")
+                except OSError as e:
+                    _log.warning("could not refresh universe cache %s: %s", cache_path, e)
+                _log.info("universe: %d optionable equities (+%d indices) [live]",
+                          len(equities), len(indices))
+                return equities
+            _log.warning("universe download parsed only %d equities (< %d floor); "
+                         "discarding it and falling back to cache", len(equities), min_equities)
+        except Exception as e:  # noqa: BLE001 - fall back to cache on any download/parse error
             _log.warning("universe download failed (%s: %s); falling back to cache",
                          type(e).__name__, e)
 
-    if text is not None:
-        try:
-            Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
-            Path(cache_path).write_text(text, encoding="utf-8")
-        except OSError as e:
-            _log.warning("could not refresh universe cache %s: %s", cache_path, e)
-    elif os.path.exists(cache_path):
-        _log.info("using cached universe %s", cache_path)
-        text = Path(cache_path).read_text(encoding="utf-8")
-    else:
-        raise RuntimeError(f"universe unavailable: download failed and no cache at {cache_path}")
-
-    equities, indices = parse_symbol_directory(text)
-    _log.info("universe: %d optionable equities (+%d indices excluded)", len(equities), len(indices))
-    return equities
+    if os.path.exists(cache_path):
+        equities, indices = parse_symbol_directory(
+            Path(cache_path).read_text(encoding="utf-8"))
+        if len(equities) >= min_equities:
+            _log.info("universe: %d optionable equities (+%d indices) [cache %s]",
+                      len(equities), len(indices), cache_path)
+            return equities
+        raise RuntimeError(f"universe cache {cache_path} parsed only {len(equities)} "
+                           f"equities (< {min_equities}); refusing to run on a bad universe")
+    raise RuntimeError(f"universe unavailable: no usable download and no cache at {cache_path}")
 
 
 def is_index(symbol: str) -> bool:
