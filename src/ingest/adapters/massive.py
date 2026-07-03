@@ -18,9 +18,22 @@ whole frame by a session and mispriced spot by ~4.6% (review blocker). So instea
   * **Spot** = Black-Scholes *delta-inversion* of the snapshot's own near-ATM greeks
     (`_util.bs_implied_spot`), median across liquid contracts. This spot is
     self-consistent with the gammas we integrate, and lands within a fraction of a
-    percent (live AAPL: 16-57 contracts, p10-p90 band ~0.03-0.1%). A dispersion gate
+    percent (live AAPL: 16-98 contracts, p10-p90 band ~0.03-0.2%). A dispersion gate
     rejects unreliable clusters rather than emit a bad spot. A future entitled tier can
     still pass an authoritative `underlying_close` in the raw dict to override.
+
+**Run after the US close (EOD adapter, like eodhd/cboe).** The snapshot is always
+"current": derived session/spot/quote_ts describe whatever the chain reflects *now*.
+After the close that is the just-closed session with 0DTE still present; an intraday run
+would stamp an in-progress session with a *future* 16:00 close time. Two known edges,
+both caught downstream by the capture layer's wall-clock/trading-day guard rather than
+here (normalize stays vendor-pure, clock-free): (1) a fully *dormant* chain where nothing
+traded today derives a stale session from the newest old day bar; (2) an accidental
+intraday run. **High-yield names:** the inversion ignores dividends, so the recovered
+spot runs ~q·τ low (verified live: AAPL −0.25%, AGNC ~13% yield −1.2%); it is bounded,
+one-directional, and still self-consistent with the vendor gammas for GEX. Prefer the
+`underlying_close` override on an entitled tier if penny-accurate spot on high-yielders
+matters.
 
 Endpoints (auth via `Authorization: Bearer <MASSIVE_API_KEY>`, kept out of URLs):
   GET /v3/snapshot/options/{SYM}?limit=250    -> chain, paginated via `next_url`
@@ -100,7 +113,7 @@ def _implied_spot(results: list[dict], session_date: date) -> tuple[float | None
             continue
         try:
             tau = (date.fromisoformat(exp_s) - session_date).days / 365.0
-        except ValueError:
+        except (TypeError, ValueError):
             continue
         if not (_TAU_MIN < tau < _TAU_MAX):
             continue
@@ -227,7 +240,7 @@ class MassiveAdapter(ChainAdapter):
                 continue
             try:
                 exp = date.fromisoformat(exp_s)                          # R4: bad date -> skip
-            except ValueError:
+            except (TypeError, ValueError):
                 skipped_bad += 1
                 continue
             if exp < session_date:

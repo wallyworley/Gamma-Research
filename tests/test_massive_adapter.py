@@ -161,6 +161,30 @@ class TestMassiveDerivationGuards(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._adapter().normalize(raw, symbol="AAPL")
 
+    def test_non_string_expiration_is_skipped_not_fatal(self):
+        # A non-string expiration_date (int) must be skipped like any malformed date,
+        # not abort the load with an uncaught TypeError.
+        raw = _load_raw()
+        raw["results"].append({
+            "details": {"contract_type": "call", "strike_price": 305.0,
+                        "expiration_date": 20260708},        # int, not "2026-07-08"
+            "greeks": {"delta": 0.5, "gamma": 0.02}, "implied_volatility": 0.3,
+            "day": {"close": 1.0, "volume": 1, "last_updated": 1782964800000000000}})
+        df = self._adapter().normalize(raw, symbol="AAPL")   # must not raise
+        self.assertEqual(len(df), 30)                        # the int-expiry row dropped
+
+    def test_wide_cluster_is_refused(self):
+        # >=5 near-ATM contracts but an inconsistent (wide) implied-spot cluster must be
+        # refused rather than emit a bad spot. Strikes 100..110 at delta 0.5 imply spots
+        # spanning ~10% -> dispersion gate rejects.
+        results = [{"details": {"contract_type": "call", "strike_price": float(k),
+                                "expiration_date": "2026-08-01"},
+                    "greeks": {"delta": 0.5, "gamma": 0.02}, "implied_volatility": 0.3,
+                    "day": {"last_updated": 1782964800000000000}}
+                   for k in range(100, 112, 2)]
+        with self.assertRaises(ValueError):
+            self._adapter().normalize({"results": results}, symbol="WIDE")
+
 
 @unittest.skipUnless(_HAVE_STACK, "pandas not installed")
 class TestMassivePipeline(unittest.TestCase):
