@@ -33,7 +33,11 @@ SCHEMA_VERSION = "1.0.0"
 OPTION_TYPES = ("call", "put")
 
 # Natural key for one canonical row: one contract observed at one point in time.
-PRIMARY_KEY = ("symbol", "quote_ts", "expiration", "strike", "type")
+# ``root`` (the OCC contract root) is part of the key so that two option series on the
+# same underlying that share (expiration, strike, type) - e.g. AM-settled SPX and
+# PM-settled SPXW, both listed under the SPX index - are distinct rows, not a collision
+# that silently drops one side's open interest.
+PRIMARY_KEY = ("symbol", "root", "quote_ts", "expiration", "strike", "type")
 
 
 @dataclass(frozen=True)
@@ -56,7 +60,11 @@ class Field:
 # Ordered canonical schema. Order is the on-disk/in-frame column order.
 CANONICAL_FIELDS: tuple[Field, ...] = (
     # --- identity / point-in-time key -------------------------------------
-    Field("symbol", "string", "string", False, "id", "underlying ticker"),
+    Field("symbol", "string", "string", False, "id", "underlying ticker (the index for index options)"),
+    Field("root", "string", "string", False, "id",
+          "OCC contract root: distinguishes option series on the same underlying that share "
+          "(expiration, strike, type), e.g. AM-settled SPX vs PM-settled SPXW. Equals the "
+          "underlying ticker for standard equity options."),
     Field("quote_ts", "ts_utc", "datetime64[ns, UTC]", False, "id",
           "point-in-time timestamp (tz-aware, UTC): EOD snapshot or intraday bar"),
     Field("expiration", "date", "datetime64[ns]", False, "id", "contract expiry (date)"),
@@ -183,6 +191,7 @@ def _pk_key(row: Mapping[str, Any]) -> tuple:
     qts = row["quote_ts"]
     return (
         row["symbol"],
+        row["root"],
         qts.isoformat() if hasattr(qts, "isoformat") else str(qts),
         _coerce_date(row["expiration"]).isoformat(),
         float(row["strike"]),

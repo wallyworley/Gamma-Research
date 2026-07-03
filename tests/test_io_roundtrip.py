@@ -33,7 +33,7 @@ def canonical_frame():
 
     rows = [
         {
-            "symbol": "SPY", "quote_ts": pd.Timestamp("2024-06-03 20:00", tz="UTC"),
+            "symbol": "SPY", "root": "SPY", "quote_ts": pd.Timestamp("2024-06-03 20:00", tz="UTC"),
             "expiration": pd.Timestamp("2024-06-21"), "strike": 530.0, "type": "call",
             "underlying_price": 528.4, "bid": 3.1, "ask": 3.3, "last": 3.2,
             "open_interest": 12000, "oi_asof_date": pd.Timestamp("2024-06-02"),
@@ -42,7 +42,7 @@ def canonical_frame():
             "_adapter": "eodhd",
         },
         {
-            "symbol": "SPY", "quote_ts": pd.Timestamp("2024-06-03 20:00", tz="UTC"),
+            "symbol": "SPY", "root": "SPY", "quote_ts": pd.Timestamp("2024-06-03 20:00", tz="UTC"),
             "expiration": pd.Timestamp("2024-06-21"), "strike": 525.0, "type": "put",
             "underlying_price": 528.4, "bid": 2.0, "ask": 2.2, "last": 2.1,
             "open_interest": 8000, "oi_asof_date": pd.Timestamp("2024-06-02"),

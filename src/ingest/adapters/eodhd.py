@@ -209,6 +209,7 @@ class EodhdAdapter(ChainAdapter):
                 "_greek_source": self.name,
                 "_adapter": self.name,
                 "_spot_source": "vendor_close",   # stock EOD close attached as spot
+                "root": symbol.upper(),           # EODHD is equities: OCC root == ticker
             })
 
         df = pd.DataFrame(rows, columns=field_names())

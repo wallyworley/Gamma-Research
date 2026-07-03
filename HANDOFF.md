@@ -28,12 +28,11 @@ every weekday, unattended, on the always-on OVH VPS.
     an entitled tier). See memory `massive-spot-from-delta-inversion`.
 - **Universe** `src/ingest/universe.py`: the ~5,290 optionable equities from the Cboe
   symbol directory (download + cache, poison-proof floor). Cash indices captured via the
-  Polygon `I:` prefix (stored under the plain root): only the single-OCC-root ones
-  (`INDEX_CAPTURE_ROOTS` = XSP, DJX, OEX). SPX/NDX/RUT are **deferred**: `I:SPX` bundles
-  AM-settled SPX and PM-settled SPXW at identical (exp, strike, type), which the canonical
-  key can't distinguish, so storing them would silently drop ~40% of SPX OI - the adapter
-  now **fails loud** (B2) on such dual-root chains. Correct capture needs settlement/OCC-root
-  in the schema key (follow-up). VIX excluded (settles to futures).
+  Polygon `I:` prefix (stored under the plain root): `INDEX_CAPTURE_ROOTS` = SPX, NDX, RUT,
+  XSP, DJX, OEX. The canonical key includes the OCC **`root`** (schema), so `I:SPX`'s
+  AM-settled SPX and PM-settled SPXW coexist in the `symbol=SPX` partition without collision
+  and GEX sums the whole index book (verified live: SPX keeps all 21.4M OI, SPX 17.1M + SPXW
+  4.3M, NetGEX +30B; previously ~40% was silently dropped). VIX excluded (settles to futures).
 - **Capture** `src/ingest/capture.py`: `capture_many(max_workers=8)` concurrent, per-symbol
   failures isolated; a **session staleness guard** drops any frame whose session != the run
   day (no wrong-partition writes); `is_after_close` gate + trading-day/holiday guard. Atomic
@@ -59,11 +58,12 @@ every weekday, unattended, on the always-on OVH VPS.
   stored chains (cross-section verified 7/2: QQQ/SPY/IWM dealer-short-gamma, single names long).
 - **Reviewed:** MassiveAdapter + deploy hardened across multiple fable passes (PRs #11, #12,
   #13). VPS: Ubuntu 24.04, systemd 255, python3.12, ubuntu-owned `/opt/gamma-research`.
-- **Next:** SPX/NDX/RUT index capture (needs settlement/OCC-root in the canonical key so
-  AM vs PM don't collide), a real failure alert (`OnFailure=` mailer/webhook vs today's
-  `.failures.log` marker), and running the metric/proxy suite + a backtest over the
-  accumulating store. (Done: `_spot_source` provenance, XSP/DJX/OEX index capture,
-  `read_canonical` returns canonical dtypes so the metric engine runs on stored chains.)
+- **Next:** a real failure alert (`OnFailure=` mailer/webhook vs today's `.failures.log`
+  marker), and running the metric/proxy suite + a backtest over the accumulating store.
+  (Done: `_spot_source` provenance; full index capture SPX/NDX/RUT/XSP/DJX/OEX with the OCC
+  `root` in the canonical key so AM/PM don't collide; `read_canonical` returns canonical
+  dtypes so the metric engine runs on stored chains; backtest harness validated on price
+  history.)
 
 ## What this repo is
 

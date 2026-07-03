@@ -29,6 +29,7 @@ def good_row(**overrides):
     """A minimal valid canonical row; override fields to build negative cases."""
     row = {
         "symbol": "SPY",
+        "root": "SPY",
         "quote_ts": dt.datetime(2024, 6, 3, 20, 0, tzinfo=UTC),
         "expiration": dt.date(2024, 6, 21),
         "strike": 530.0,
@@ -141,6 +142,18 @@ class TestValidateRecords(unittest.TestCase):
         call = good_row(type="call")
         put = good_row(type="put", delta=-0.4)
         self.assertEqual(schema.validate_records([call, put]), [])
+
+    def test_same_key_different_root_is_not_duplicate(self):
+        # AM-settled SPX and PM-settled SPXW at the same strike/expiry/type are distinct
+        # contracts; `root` in the key keeps both instead of collapsing one's OI.
+        am = good_row(symbol="SPX", root="SPX", open_interest=229924)
+        pm = good_row(symbol="SPX", root="SPXW", open_interest=1161)
+        self.assertEqual(schema.validate_records([am, pm]), [])
+
+    def test_root_is_a_required_key_field(self):
+        self.assertIn("root", schema.PRIMARY_KEY)
+        with self.assertRaises(schema.SchemaError):
+            schema.validate_records([good_row(root=None)])
 
     def test_iso_string_timestamps_accepted(self):
         row = good_row(

@@ -68,6 +68,7 @@ from ._util import (
     bs_implied_spot,
     et_date_from_epoch_ns,
     num,
+    occ_root,
     prior_weekday,
     session_close_utc,
     to_int,
@@ -288,7 +289,8 @@ class MassiveAdapter(ChainAdapter):
                 stale_day += 1
 
             rows.append({
-                "symbol": sym, "quote_ts": quote_ts, "expiration": exp,
+                "symbol": sym, "root": occ_root(d.get("ticker")) or sym,
+                "quote_ts": quote_ts, "expiration": exp,
                 "strike": strike, "type": ctype, "underlying_price": spot,
                 "bid": None, "ask": None, "last": last_px,
                 "open_interest": to_int(r.get("open_interest")), "oi_asof_date": oi_asof,
@@ -315,21 +317,20 @@ class MassiveAdapter(ChainAdapter):
                   if k not in ("quote_ts", "expiration", "oi_asof_date")}
         df = df.astype(scalar)
 
-        # De-dup vendor artifacts, but NOT settlement collisions. Two rows sharing the
-        # canonical key that are byte-identical are a vendor repeat -> safe to collapse.
-        # Two DIFFERENT contracts sharing the key (AM-settled SPX vs PM-settled SPXW at the
-        # same strike/expiry, both under I:SPX) can't be told apart by the canonical key, so
-        # collapsing would silently drop the larger side's OI (~40% on SPX). The schema can't
-        # represent settlement yet, so fail loud like cboe's B2 guard rather than corrupt.
+        # De-dup vendor artifacts, but NOT genuine collisions. Two rows sharing the full
+        # canonical key (which now includes `root`) that are byte-identical are a vendor
+        # repeat -> safe to collapse. Distinct contracts that still share the whole key are
+        # anomalous - the AM/PM index case is handled by `root` (SPX vs SPXW no longer
+        # collide), so a survivor here would silently drop OI; fail loud (B2) rather than
+        # corrupt.
         pk = list(PRIMARY_KEY)
         shares_key = df.duplicated(subset=pk, keep=False)
         collides = shares_key & ~df.duplicated(keep=False)   # same key, not a full-row dupe
         if collides.any():
             n = int(df[shares_key].drop_duplicates(subset=pk).shape[0])
             raise NotImplementedError(
-                f"Massive {sym}: {n} canonical key(s) are shared by distinct contracts "
-                "(AM/PM dual-settled index, e.g. SPX vs SPXW); collapsing would silently drop "
-                "open interest. Unsupported until settlement/OCC-root is in the schema (B2).")
+                f"Massive {sym}: {n} canonical key(s) shared by distinct contracts even with "
+                "root in the key; collapsing would silently drop open interest (B2).")
         before = len(df)
         df = df.drop_duplicates(subset=pk, keep="last").reset_index(drop=True)
         if len(df) < before:
