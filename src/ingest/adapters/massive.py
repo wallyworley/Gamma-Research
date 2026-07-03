@@ -30,11 +30,12 @@ vendor-pure and clock-free; the wall-clock guards live outside it: the capture l
 drops a *dormant* chain (its derived session != the run day) and no-ops on non-trading
 days, and the nightly runner (scripts/snapshot_universe.py) refuses to run before the
 post-close window (capture.is_after_close), so a reboot-triggered catch-up can't write an
-intraday chain as EOD. **High-yield names:** the inversion ignores dividends, so the recovered
-spot runs ~q·τ low (verified live: AAPL −0.25%, AGNC ~13% yield −1.2%); it is bounded,
-one-directional, and still self-consistent with the vendor gammas for GEX. Prefer the
-`underlying_close` override on an entitled tier if penny-accurate spot on high-yielders
-matters.
+intraday chain as EOD. **High-yield names:** the inversion ignores dividends, so on the tight
+tier the recovered spot runs ~q*tau low (AAPL -0.25%, AGNC ~13% yield -1.2%), and the wider
+fallback tier (tau to 120d) roughly doubles that on high-yielders (up to ~3.5% low, CHMI).
+The bias is bounded, one-directional, and still self-consistent with the vendor gammas for
+GEX. Prefer the `underlying_close` override on an entitled tier if penny-accurate spot on
+high-yielders matters.
 
 Endpoints (auth via `Authorization: Bearer <MASSIVE_API_KEY>`, kept out of URLs):
   GET /v3/snapshot/options/{SYM}?limit=250    -> chain, paginated via `next_url`
@@ -81,12 +82,20 @@ _PAGE_LIMIT = 250
 _MAX_PAGES = 400                      # safety cap (a huge chain is ~tens of pages)
 _RETRY_CODES = frozenset({429, 500, 502, 503, 504})
 
-# Greek delta-inversion spot recovery (see module docstring).
+# Greek delta-inversion spot recovery (see module docstring). Two tiers, tried in order:
+# a tight, high-precision near-ATM band first (liquid names), then a wider fallback that
+# recovers thin chains (few strikes/expiries) which would otherwise be dropped. The
+# dispersion gate still guards every tier, so a genuinely inconsistent cluster is refused
+# rather than emit a bad spot. Validated live: the fallback recovers ~half of the thin-chain
+# failures; spots are ~1-2% of the reference close typically, but up to ~3.5% low on
+# high-yield names (the dividend bias grows with the 120d horizon, q*tau; one-directional).
 _SPOT_R = 0.045                       # flat risk-free; small effect at short tau
-_SPOT_MIN_CONTRACTS = 5               # too few near-ATM -> spot unreliable
-_SPOT_MAX_DISPERSION = 0.02           # reject if p10..p90 band exceeds 2% of median
-_DELTA_LO, _DELTA_HI = 0.30, 0.70     # near-the-money band (most reliable inversion)
-_TAU_MIN, _TAU_MAX = 2 / 365, 60 / 365  # skip 0DTE blowups and far LEAPS
+_TAU_MIN = 2 / 365                    # skip 0DTE blowups
+# (tau_max, delta_lo, delta_hi, min_contracts, max_dispersion)
+_SPOT_TIERS = (
+    (60 / 365,  0.30, 0.70, 5, 0.02),   # primary: tight near-ATM, most reliable
+    (120 / 365, 0.25, 0.75, 3, 0.03),   # fallback: wider band/horizon for thin chains
+)
 
 
 def _session_from_snapshot(results: list[dict]) -> date | None:
@@ -99,12 +108,9 @@ def _session_from_snapshot(results: list[dict]) -> date | None:
     return latest
 
 
-def _implied_spot(results: list[dict], session_date: date) -> tuple[float | None, int, float | None]:
-    """Median near-ATM delta-inverted spot. Returns (spot|None, n_used, dispersion).
-
-    Spot is None when there are too few usable contracts or the cluster is too wide to
-    trust (the caller then refuses the symbol rather than write a bad underlying price).
-    """
+def _tier_spots(results: list[dict], session_date: date,
+                tau_max: float, delta_lo: float, delta_hi: float) -> list[float]:
+    """Delta-inverted spots for every contract inside one tier's near-ATM/horizon band."""
     xs: list[float] = []
     for r in results:
         d = r.get("details") or {}
@@ -116,27 +122,42 @@ def _implied_spot(results: list[dict], session_date: date) -> tuple[float | None
             tau = (date.fromisoformat(exp_s) - session_date).days / 365.0
         except (TypeError, ValueError):
             continue
-        if not (_TAU_MIN < tau < _TAU_MAX):
+        if not (_TAU_MIN < tau < tau_max):
             continue
         delta = num((r.get("greeks") or {}).get("delta"))
         if delta is None:
             continue
         ncdf = delta if ctype == "call" else delta + 1.0
-        if not (_DELTA_LO < ncdf < _DELTA_HI):
+        if not (delta_lo < ncdf < delta_hi):
             continue
         s = bs_implied_spot(num(d.get("strike_price")), num(r.get("implied_volatility")),
                             delta, tau, ctype == "call", _SPOT_R)
         if s is not None and s > 0:
             xs.append(s)
+    return xs
 
-    if len(xs) < _SPOT_MIN_CONTRACTS:
-        return None, len(xs), None
-    xs.sort()
-    med = statistics.median(xs)
-    dispersion = (xs[(9 * len(xs)) // 10] - xs[len(xs) // 10]) / med if med else None
-    if dispersion is not None and dispersion > _SPOT_MAX_DISPERSION:
-        return None, len(xs), dispersion
-    return med, len(xs), dispersion
+
+def _implied_spot(results: list[dict],
+                  session_date: date) -> tuple[float | None, int, float | None, int | None]:
+    """Median near-ATM delta-inverted spot. Returns (spot|None, n_used, dispersion, tier).
+
+    Tries the tight primary tier first, then the wider fallback; each is gated on a
+    minimum contract count and a maximum p10..p90 dispersion. Spot is None (caller refuses
+    the symbol rather than write a bad underlying price) only if no tier qualifies.
+    """
+    n_last, disp_last = 0, None
+    for tier, (tau_max, delta_lo, delta_hi, floor, max_disp) in enumerate(_SPOT_TIERS):
+        xs = _tier_spots(results, session_date, tau_max, delta_lo, delta_hi)
+        n_last = len(xs)
+        if len(xs) < floor:
+            continue
+        xs.sort()
+        med = statistics.median(xs)
+        dispersion = (xs[(9 * len(xs)) // 10] - xs[len(xs) // 10]) / med if med else None
+        disp_last = dispersion
+        if dispersion is None or dispersion <= max_disp:
+            return med, len(xs), dispersion, tier
+    return None, n_last, disp_last, None
 
 
 @register_adapter
@@ -217,14 +238,14 @@ class MassiveAdapter(ChainAdapter):
         if spot is not None and spot > 0:
             spot_source = "vendor_close"
         else:
-            spot, n_used, dispersion = _implied_spot(results, session_date)
+            spot, n_used, dispersion, tier = _implied_spot(results, session_date)
             spot_source = "implied_delta"
             if spot is None:
                 raise ValueError(
                     f"Massive {sym}: could not recover a reliable spot from greeks "
                     f"(n_used={n_used}, dispersion={dispersion})")
             _log.info("Massive %s: greek-implied spot %.4f from %d near-ATM contracts "
-                      "(dispersion %.4f)", sym, spot, n_used, dispersion or 0.0)
+                      "(tier %d, dispersion %.4f)", sym, spot, n_used, tier, dispersion or 0.0)
 
         quote_ts = session_close_utc(session_date)
         oi_asof = prior_weekday(session_date, self.oi_lag_days)

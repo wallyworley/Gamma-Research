@@ -3,7 +3,51 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-02 (Cboe real-data adapter + phase-2 code-rigor batch F7/F9/F10/F12/F13/F15/F17/F18).
+Last updated: 2026-07-02 (Massive/Polygon paid adapter + nightly VPS universe capture LIVE; two-tier spot recovery).
+
+## LIVE: paid data + nightly VPS universe capture (start here)
+
+The engine now collects real option chains for the **full optionable US equity universe**
+every weekday, unattended, on the always-on OVH VPS.
+
+- **Provider:** Massive (rebranded Polygon.io; API host still `api.polygon.io`), **Options
+  Starter ~$29/mo**. Key in `.env` (`MASSIVE_API_KEY`; also on the VPS at
+  `/opt/gamma-research/.env`, perms 600). The free-tier products can't drive GEX: flat
+  files lack greeks/OI; the free stock snapshot is 403.
+- **Adapter** `src/ingest/adapters/massive.py` (registered `"massive"`). The tier gives
+  **no underlying spot** (underlying_asset carries only a ticker, stock snapshot 403, the
+  underlying daily bar lags the options snapshot). So, unlike a normal EOD source:
+  - **Session** = latest ET date among per-contract `day.last_updated` (not `/prev`, which
+    lags a full session and caused a ~4.6% spot error fable caught + blocked).
+  - **Spot** = Black-Scholes **delta-inversion** of the snapshot's own near-ATM greeks
+    (`_util.bs_implied_spot`), median, self-consistent with the gammas we integrate.
+    **Two tiers** (`_SPOT_TIERS`): tight 2-60d/0.30-0.70 delta/floor-5 for liquid names,
+    a wider 2-120d/0.25-0.75/floor-3 fallback for thin chains; a dispersion gate refuses
+    an inconsistent cluster (no bad spot written). Known limit: ignores dividends, so
+    high-yield names run ~q*tau low (bounded, documented; `underlying_close` overrides on
+    an entitled tier). See memory `massive-spot-from-delta-inversion`.
+- **Universe** `src/ingest/universe.py`: the ~5,290 optionable equities from the Cboe
+  symbol directory (download + cache, poison-proof floor); 10 cash indices split out (need
+  a Polygon `I:` prefix + entitlement, deferred).
+- **Capture** `src/ingest/capture.py`: `capture_many(max_workers=8)` concurrent, per-symbol
+  failures isolated; a **session staleness guard** drops any frame whose session != the run
+  day (no wrong-partition writes); `is_after_close` gate + trading-day/holiday guard. Atomic
+  parquet writes (`io.py`: tmp + `os.replace`). Runner `scripts/snapshot_universe.py` writes
+  a `data/.last_run.json` heartbeat.
+- **Deploy** `.github/workflows/deploy.yml`: push to main -> **test gate (py3.12 + lock)** ->
+  rsync to `/opt/gamma-research` (excludes `.env`/`.venv`/**`data/`**, no `--delete`) -> venv +
+  `requirements.lock.txt` -> install + enable `deploy/systemd/gamma-snapshot.timer`
+  (**17:30 ET Mon-Fri**, DST-correct on the UTC host; holidays no-op via the guard). Secrets
+  `VPS_HOST` / `VPS_SSH_KEY` set. Store: `/opt/gamma-research/data`.
+- **First full production run:** 3161/5290 captured in ~6 min; the two-tier recovery lifts
+  thin-chain coverage from ~60% toward ~78% (validated spots within ~1-2% of reference).
+  Remaining skips are genuinely illiquid/binary names (fail-safe, nothing bad written).
+- **Reviewed:** MassiveAdapter + deploy hardened across multiple fable passes (PRs #11, #12,
+  #13). VPS: Ubuntu 24.04, systemd 255, python3.12, ubuntu-owned `/opt/gamma-research`.
+- **Next:** cash-index capture (`I:` prefix + settlement), optional failure alerting
+  (`OnFailure=`), **persist the spot-recovery tier** (e.g. a `_spot_source` column) so
+  downstream GEX can down-weight fallback-tier spots (fable nit, deferred), and running the
+  metric/proxy suite + a backtest over the accumulating store.
 
 ## What this repo is
 
