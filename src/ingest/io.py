@@ -16,7 +16,14 @@ import os
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from .schema import arrow_schema, field_names, partition_relpath, validate_frame
+from .schema import (
+    NULLABLE_FIELDS,
+    arrow_schema,
+    field_names,
+    pandas_dtypes,
+    partition_relpath,
+    validate_frame,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     import pandas as pd
@@ -60,10 +67,16 @@ def read_canonical(root: str, symbol: str,
     collides with the real ``symbol`` string column kept inside the file. Callers
     already pass (symbol, quote_date), so no reconstruction from the path is needed.
     """
+    import pandas as pd
     import pyarrow.parquet as pq
 
     path = os.path.join(root, partition_relpath(symbol, quote_date), _FILENAME)
     frame = pq.ParquetFile(path).read().to_pandas()
+    # Schema evolution: a partition written before a nullable column was added lacks it.
+    # Backfill any missing nullable canonical column as null so old data still validates.
+    for name in NULLABLE_FIELDS:
+        if name not in frame.columns:
+            frame[name] = pd.Series([pd.NA] * len(frame), dtype=pandas_dtypes()[name])
     validate_frame(frame)
     return frame
 

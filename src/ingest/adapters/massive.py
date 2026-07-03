@@ -166,10 +166,17 @@ class MassiveAdapter(ChainAdapter):
 
     name = "massive"
 
-    def __init__(self, api_key: str | None = None, *, oi_lag_days: int = 1, base_url: str = _BASE):
+    def __init__(self, api_key: str | None = None, *, oi_lag_days: int = 1, base_url: str = _BASE,
+                 index_roots: frozenset[str] = frozenset()):
         self.api_key = api_key or os.environ.get("MASSIVE_API_KEY")
         self.oi_lag_days = oi_lag_days
         self.base_url = base_url
+        # Canonical roots that are cash-settled indices on Polygon: the snapshot URL needs
+        # the `I:` prefix (`I:SPX`), but the canonical/partition symbol stays plain (`SPX`).
+        self.index_roots = frozenset(s.upper() for s in index_roots)
+
+    def _polygon_ticker(self, sym: str) -> str:
+        return f"I:{sym}" if sym in self.index_roots else sym
 
     def _get(self, url: str) -> dict[str, Any]:
         """GET a path or a full next_url with the bearer header (key never in the URL).
@@ -204,7 +211,7 @@ class MassiveAdapter(ChainAdapter):
         if quote_date is not None:                                        # R2
             _log.warning("Massive %s: quote_date=%s ignored (the snapshot is always current)",
                          symbol.upper(), quote_date)
-        sym = symbol.upper()
+        sym = self._polygon_ticker(symbol.upper())
 
         results: list[dict] = []
         url = f"/v3/snapshot/options/{sym}?limit={_PAGE_LIMIT}"
@@ -239,11 +246,11 @@ class MassiveAdapter(ChainAdapter):
             spot_source = "vendor_close"
         else:
             spot, n_used, dispersion, tier = _implied_spot(results, session_date)
-            spot_source = "implied_delta"
             if spot is None:
                 raise ValueError(
                     f"Massive {sym}: could not recover a reliable spot from greeks "
                     f"(n_used={n_used}, dispersion={dispersion})")
+            spot_source = f"implied_delta_t{tier}"   # t0 = tight tier, t1 = wider fallback
             _log.info("Massive %s: greek-implied spot %.4f from %d near-ATM contracts "
                       "(tier %d, dispersion %.4f)", sym, spot, n_used, tier, dispersion or 0.0)
 
@@ -289,6 +296,7 @@ class MassiveAdapter(ChainAdapter):
                 "delta": num(g.get("delta")), "gamma": num(g.get("gamma")),
                 "theta": num(g.get("theta")), "vega": num(g.get("vega")), "rho": None,
                 "_iv_source": self.name, "_greek_source": self.name, "_adapter": self.name,
+                "_spot_source": spot_source,
             })
 
         if not rows:

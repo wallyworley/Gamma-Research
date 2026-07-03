@@ -1,0 +1,11 @@
+[Unit]
+Description=Record a gamma-snapshot failure (durable signal for the unattended box)
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+# Appended to the store so it sits next to .last_run.json; a non-empty/recent tail here
+# (or a stale .last_run.json) is the "something broke" signal. Cheap stand-in for real
+# alerting until an OnFailure= mailer/webhook is wired.
+ExecStart=/bin/sh -c 'echo "$(date -u -Iseconds) gamma-snapshot.service failed" >> /opt/gamma-research/data/.failures.log'

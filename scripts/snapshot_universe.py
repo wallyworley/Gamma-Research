@@ -36,7 +36,7 @@ sys.path.insert(0, str(REPO))
 
 from src.ingest.adapters.massive import MassiveAdapter  # noqa: E402
 from src.ingest.capture import capture_many, is_after_close  # noqa: E402
-from src.ingest.universe import load_universe  # noqa: E402
+from src.ingest.universe import INDEX_CAPTURE_ROOTS, load_universe  # noqa: E402
 
 _STATUS_FILE = ".last_run.json"
 
@@ -77,12 +77,14 @@ def main(argv: list[str]) -> int:
     if args.symbols:
         symbols = list(dict.fromkeys(s.upper() for s in args.symbols))
     else:
-        symbols = load_universe()
+        symbols = load_universe(include_indices=True)
     if args.limit is not None:
         symbols = symbols[:args.limit]
 
+    # Cash indices are fetched with Polygon's `I:` prefix but stored under the plain root.
+    adapter = MassiveAdapter(index_roots=frozenset(INDEX_CAPTURE_ROOTS))
     logging.info("capturing %d symbols -> %s (workers=%d)", len(symbols), root, args.workers)
-    results = capture_many(symbols, root, adapter=MassiveAdapter(), max_workers=args.workers)
+    results = capture_many(symbols, root, adapter=adapter, max_workers=args.workers)
 
     if "__skipped__" in results:  # non-trading day: clean no-op
         print(f"skipped: {results['__skipped__']}")

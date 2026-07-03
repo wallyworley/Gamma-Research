@@ -101,6 +101,8 @@ class TestMassiveNormalize(unittest.TestCase):
     def test_provenance_columns(self):
         for col in ("_adapter", "_greek_source", "_iv_source"):
             self.assertTrue((self.df[col] == "massive").all())
+        # spot came from the tight (primary) delta-inversion tier on this fixture.
+        self.assertTrue((self.df["_spot_source"] == "implied_delta_t0").all())
 
     def test_stale_day_bar_is_nulled_R1(self):
         # The 288C carries a day bar from a prior session (6/1); its last/volume must be
@@ -155,6 +157,18 @@ class TestMassiveDerivationGuards(unittest.TestCase):
         raw["session_date"] = "2026-07-02"
         df = self._adapter().normalize(raw, symbol="AAPL")
         self.assertTrue((df["underlying_price"] == 250.0).all())
+        self.assertTrue((df["_spot_source"] == "vendor_close").all())
+
+    def test_index_ticker_mapping(self):
+        # Cash indices fetch with the Polygon `I:` prefix but stay plain in the canonical
+        # symbol/partition; non-index symbols are untouched.
+        from src.ingest.adapters.massive import MassiveAdapter
+        a = MassiveAdapter(api_key="test", index_roots=frozenset({"SPX", "NDX"}))
+        self.assertEqual(a._polygon_ticker("SPX"), "I:SPX")
+        self.assertEqual(a._polygon_ticker("NDX"), "I:NDX")
+        self.assertEqual(a._polygon_ticker("AAPL"), "AAPL")
+        # default: no roots -> nothing is prefixed
+        self.assertEqual(MassiveAdapter(api_key="test")._polygon_ticker("SPX"), "SPX")
 
     def test_all_malformed_raises(self):
         raw = {"results": [{"details": {}}]}   # no strike/type/expiration, no day stamp
