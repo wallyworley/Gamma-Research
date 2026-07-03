@@ -89,6 +89,11 @@ class TestParquetRoundTrip(unittest.TestCase):
         self.assertEqual(len(back), 2)
         self.assertEqual(set(back["type"]), {"call", "put"})
         self.assertEqual(schema.validate_frame(back), [])
+        # Canonical dtypes on read: parquet date32 must come back as datetime64 (not
+        # object), else the metric engine's `.dt` horizon math breaks on stored data.
+        self.assertEqual(str(back["expiration"].dtype), "datetime64[ns]")
+        self.assertEqual(str(back["oi_asof_date"].dtype), "datetime64[ns]")
+        self.assertEqual(dict(back.dtypes.astype(str)), schema.pandas_dtypes())
 
     def test_read_backfills_missing_nullable_column(self):
         # Schema evolution: a partition written before _spot_source existed lacks the

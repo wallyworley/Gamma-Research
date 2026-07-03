@@ -77,6 +77,10 @@ def read_canonical(root: str, symbol: str,
     for name in NULLABLE_FIELDS:
         if name not in frame.columns:
             frame[name] = pd.Series([pd.NA] * len(frame), dtype=pandas_dtypes()[name])
+    # Return canonical column order + dtypes. Parquet date32 otherwise reads back as
+    # object (datetime.date), which breaks the metric engine's `.dt` horizon math; casting
+    # here makes stored data behave exactly like an adapter's in-memory frame.
+    frame = frame[field_names()].astype(pandas_dtypes())
     validate_frame(frame)
     return frame
 
