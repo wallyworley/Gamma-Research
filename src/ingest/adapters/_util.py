@@ -8,6 +8,7 @@ session conventions byte-identical across vendors (so they can't drift).
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timezone
 from math import exp, sqrt
 from statistics import NormalDist
@@ -55,6 +56,26 @@ def prior_weekday(session_date: date, lag: int = 1) -> date:
     return (pd.Timestamp(session_date) - pd.tseries.offsets.BusinessDay(lag)).date()
 
 
+_OSI_SUFFIX = re.compile(r"\d{6}[CP]\d{8}")  # YYMMDD + type + strike(8), the fixed OSI tail
+
+
+def occ_root(ticker: Any) -> str | None:
+    """OCC contract root from a Polygon option ticker.
+
+    ``O:SPXW260706C03000000`` -> ``SPXW`` (distinguishes PM-settled SPXW from AM-settled
+    SPX), ``O:AAPL260717C00300000`` -> ``AAPL``. The OSI suffix is fixed-width - YYMMDD(6)
+    + type(1) + strike(8) = 15 chars - so the root is everything before it. Returns None
+    unless that 15-char tail actually matches the OSI shape (so a non-OSI/garbage ticker
+    can't mint a wrong root); the caller then falls back to the underlying symbol.
+    """
+    if not isinstance(ticker, str) or not ticker:
+        return None
+    body = ticker[2:] if ticker.startswith("O:") else ticker
+    if len(body) <= 15 or not _OSI_SUFFIX.fullmatch(body[-15:]):
+        return None
+    return body[:-15]
+
+
 def et_date_from_epoch_ns(ns: Any) -> date | None:
     """The America/New_York calendar date of an epoch-**nanosecond** instant.
 
@@ -92,4 +113,4 @@ def bs_implied_spot(strike: float | None, iv: float | None, delta: float | None,
 
 
 __all__ = ["num", "to_int", "session_close_utc", "prior_weekday",
-           "et_date_from_epoch_ns", "bs_implied_spot"]
+           "et_date_from_epoch_ns", "bs_implied_spot", "occ_root"]

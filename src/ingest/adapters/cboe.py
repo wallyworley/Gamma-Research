@@ -186,6 +186,7 @@ class CboeAdapter(ChainAdapter):
                 "_greek_source": self.name,
                 "_adapter": self.name,
                 "_spot_source": "vendor_close",   # Cboe quote carries the underlying last
+                "root": symbol.upper(),           # Cboe is equities: OCC root == ticker
             })
 
         # Distinct OCC roots under one (expiration, strike, type) are AM/PM-settled

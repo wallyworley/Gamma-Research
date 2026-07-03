@@ -33,7 +33,7 @@ def canonical_frame():
 
     rows = [
         {
-            "symbol": "SPY", "quote_ts": pd.Timestamp("2024-06-03 20:00", tz="UTC"),
+            "symbol": "SPY", "root": "SPY", "quote_ts": pd.Timestamp("2024-06-03 20:00", tz="UTC"),
             "expiration": pd.Timestamp("2024-06-21"), "strike": 530.0, "type": "call",
             "underlying_price": 528.4, "bid": 3.1, "ask": 3.3, "last": 3.2,
             "open_interest": 12000, "oi_asof_date": pd.Timestamp("2024-06-02"),
@@ -42,7 +42,7 @@ def canonical_frame():
             "_adapter": "eodhd",
         },
         {
-            "symbol": "SPY", "quote_ts": pd.Timestamp("2024-06-03 20:00", tz="UTC"),
+            "symbol": "SPY", "root": "SPY", "quote_ts": pd.Timestamp("2024-06-03 20:00", tz="UTC"),
             "expiration": pd.Timestamp("2024-06-21"), "strike": 525.0, "type": "put",
             "underlying_price": 528.4, "bid": 2.0, "ask": 2.2, "last": 2.1,
             "open_interest": 8000, "oi_asof_date": pd.Timestamp("2024-06-02"),
@@ -112,6 +112,24 @@ class TestParquetRoundTrip(unittest.TestCase):
             back = io.read_canonical(root, "SPY", dt.date(2024, 6, 3))
         self.assertIn("_spot_source", back.columns)
         self.assertTrue(back["_spot_source"].isna().all())
+        self.assertEqual(schema.validate_frame(back), [])
+
+    def test_read_backfills_root_from_symbol_on_legacy_partition(self):
+        # A partition written before `root` (a REQUIRED key field) existed: read_canonical
+        # must derive root from symbol (equities: root == ticker) so it stays readable.
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        from src.ingest import io
+
+        df = canonical_frame().drop(columns=["root"])   # pre-root layout
+        with tempfile.TemporaryDirectory() as root:
+            part = os.path.join(root, schema.partition_relpath("SPY", dt.date(2024, 6, 3)))
+            os.makedirs(part, exist_ok=True)
+            pq.write_table(pa.Table.from_pandas(df, preserve_index=False),
+                           os.path.join(part, "chain.parquet"))
+            back = io.read_canonical(root, "SPY", dt.date(2024, 6, 3))
+        self.assertTrue((back["root"] == back["symbol"]).all())
         self.assertEqual(schema.validate_frame(back), [])
 
 

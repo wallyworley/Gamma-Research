@@ -55,6 +55,18 @@ class TestUtilHelpers(unittest.TestCase):
         self.assertAlmostEqual(bs_implied_spot(K, iv, call_delta, tau, True, r), S, places=4)
         self.assertAlmostEqual(bs_implied_spot(K, iv, put_delta, tau, False, r), S, places=4)
 
+    def test_occ_root(self):
+        from src.ingest.adapters._util import occ_root
+        self.assertEqual(occ_root("O:SPXW260706C03000000"), "SPXW")
+        self.assertEqual(occ_root("O:SPX260706C03000000"), "SPX")
+        self.assertEqual(occ_root("O:AAPL260717C00300000"), "AAPL")
+        self.assertEqual(occ_root("O:AAPL1260717C00300000"), "AAPL1")   # adjusted root
+        self.assertIsNone(occ_root(None))
+        self.assertIsNone(occ_root(""))
+        self.assertIsNone(occ_root("short"))
+        # a long but non-OSI ticker must NOT mint a wrong root (shape-checked tail)
+        self.assertIsNone(occ_root("O:NOTAREALOSITICKERSTRING"))
+
     def test_bs_implied_spot_rejects_bad_inputs(self):
         from src.ingest.adapters._util import bs_implied_spot
         self.assertIsNone(bs_implied_spot(None, 0.2, 0.5, 0.1, True))
@@ -176,6 +188,20 @@ class TestMassiveDerivationGuards(unittest.TestCase):
                     "open_interest": oi, "day": {"last_updated": lu}} for oi in (200000, 500)]
         with self.assertRaises(NotImplementedError):
             self._adapter().normalize({"results": self._near_atm() + collide}, symbol="SPX")
+
+    def test_am_pm_roots_both_kept(self):
+        # AM-settled SPX and PM-settled SPXW at the same strike/expiry/type are distinct
+        # OCC roots -> kept as separate rows (no OI dropped), the dual-root fix.
+        lu = 1782964800000000000
+        am_pm = [{"details": {"contract_type": "call", "strike_price": 500.0,
+                              "expiration_date": "2026-07-10", "ticker": tk},
+                  "greeks": {"delta": 0.99, "gamma": 0.001}, "implied_volatility": 0.30,
+                  "open_interest": oi, "day": {"last_updated": lu}}
+                 for tk, oi in (("O:SPX260710C05000000", 200000), ("O:SPXW260710C05000000", 500))]
+        df = self._adapter().normalize({"results": self._near_atm() + am_pm}, symbol="SPX")
+        at500 = df[df["strike"] == 500.0]
+        self.assertEqual(set(at500["root"]), {"SPX", "SPXW"})
+        self.assertEqual(sorted(int(x) for x in at500["open_interest"]), [500, 200000])
 
     def test_exact_duplicate_rows_collapse(self):
         # Byte-identical vendor repeats collapse quietly (not a settlement collision).

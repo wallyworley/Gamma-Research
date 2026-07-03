@@ -35,6 +35,7 @@ def mini_chain(contracts, *, spot, quote_date=_QUOTE_DATE):
         row = {name: None for name in schema.field_names()}
         row.update({
             "symbol": "TEST",
+            "root": c.get("root", "TEST"),
             "quote_ts": quote_ts,
             "expiration": pd.Timestamp(c.get("expiration", _FAR_EXP)),
             "strike": float(c["strike"]),
