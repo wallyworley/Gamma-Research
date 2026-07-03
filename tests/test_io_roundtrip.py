@@ -114,6 +114,24 @@ class TestParquetRoundTrip(unittest.TestCase):
         self.assertTrue(back["_spot_source"].isna().all())
         self.assertEqual(schema.validate_frame(back), [])
 
+    def test_read_backfills_root_from_symbol_on_legacy_partition(self):
+        # A partition written before `root` (a REQUIRED key field) existed: read_canonical
+        # must derive root from symbol (equities: root == ticker) so it stays readable.
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        from src.ingest import io
+
+        df = canonical_frame().drop(columns=["root"])   # pre-root layout
+        with tempfile.TemporaryDirectory() as root:
+            part = os.path.join(root, schema.partition_relpath("SPY", dt.date(2024, 6, 3)))
+            os.makedirs(part, exist_ok=True)
+            pq.write_table(pa.Table.from_pandas(df, preserve_index=False),
+                           os.path.join(part, "chain.parquet"))
+            back = io.read_canonical(root, "SPY", dt.date(2024, 6, 3))
+        self.assertTrue((back["root"] == back["symbol"]).all())
+        self.assertEqual(schema.validate_frame(back), [])
+
 
 if __name__ == "__main__":
     unittest.main()
