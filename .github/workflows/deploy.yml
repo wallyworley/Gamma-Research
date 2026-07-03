@@ -1,0 +1,98 @@
+name: Deploy to VPS
+
+# Auto-deploy on every push to main; also a manual trigger from the Actions tab
+# (re-run after an interrupted deploy, or to reset the VPS to match main).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# One deploy at a time: a later push waits rather than racing an older rsync.
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up SSH key
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Prepare host (idempotent)
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "ubuntu@$VPS_HOST" '
+            set -e
+            sudo mkdir -p /opt/gamma-research
+            sudo chown ubuntu:ubuntu /opt/gamma-research
+            # venv tooling (no-op if already present)
+            dpkg -s python3-venv >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv; }
+          '
+
+      - name: Rsync repo to /opt/gamma-research
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          # No --delete (leave VPS-only files alone). Excludes protect VPS-side state:
+          #   .env      secrets, provisioned once, never overwrite
+          #   .venv/    VPS Python install
+          #   data/     the captured parquet store -- must survive deploys
+          rsync -avz \
+            -e "ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.venv/' \
+            --exclude='__pycache__/' \
+            --exclude='**/__pycache__/' \
+            --exclude='*.pyc' \
+            --exclude='.env' \
+            --exclude='.env.example' \
+            --exclude='.claude/' \
+            --exclude='.pytest_cache/' \
+            --exclude='data/' \
+            --exclude='.DS_Store' \
+            ./ "ubuntu@$VPS_HOST:/opt/gamma-research/"
+
+      - name: Install deps + systemd timer, enable
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "ubuntu@$VPS_HOST" '
+            set -e
+            cd /opt/gamma-research
+            test -d .venv || python3 -m venv .venv
+            .venv/bin/pip install -q --upgrade pip
+            .venv/bin/pip install -q -r requirements.lock.txt
+            # Install/refresh the system timer + service (full-sudo host).
+            sudo cp deploy/systemd/gamma-snapshot.service deploy/systemd/gamma-snapshot.timer \
+              /etc/systemd/system/
+            sudo systemctl daemon-reload
+            sudo systemctl enable --now gamma-snapshot.timer
+            echo "deploy complete: $(date -u --iso-8601=seconds)"
+          '
+
+      - name: Record deployed SHA + confirm timer
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "ubuntu@$VPS_HOST" "
+            echo '${{ github.sha }}' > /opt/gamma-research/.deployed_sha
+            cat /opt/gamma-research/.deployed_sha
+            systemctl is-enabled gamma-snapshot.timer
+            systemctl list-timers gamma-snapshot.timer --no-pager || true
+          "

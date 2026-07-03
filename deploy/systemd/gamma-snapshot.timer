@@ -1,0 +1,16 @@
+[Unit]
+Description=Fire the gamma-research universe snapshot after the US close
+
+[Timer]
+# 17:30 America/New_York on weekdays: ~90 min after the 16:00 close, when the option
+# snapshot reflects the just-closed session (greeks settled, 0DTE still present) and
+# well before any overnight roll. systemd (>=240) resolves the TZ, so this is DST-correct
+# on a UTC host. Holidays are handled by the capture layer's trading-day guard, not here.
+OnCalendar=Mon-Fri 17:30 America/New_York
+# Catch a run missed while the box was down (e.g. a reboot spanning 17:30).
+Persistent=true
+# Spread the wake a little so it never rides a scheduler spike.
+RandomizedDelaySec=180
+
+[Install]
+WantedBy=timers.target
