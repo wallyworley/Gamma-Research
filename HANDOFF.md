@@ -47,6 +47,16 @@ every weekday, unattended, on the always-on OVH VPS.
 - **First full production run:** 3161/5290 captured in ~6 min; the two-tier recovery lifts
   thin-chain coverage from ~60% toward ~78% (validated spots within ~1-2% of reference).
   Remaining skips are genuinely illiquid/binary names (fail-safe, nothing bad written).
+- **Backtesting (harness validated on price history):** `src/backtest/bars.py`
+  (`fetch_daily_bars`, Polygon historical daily bars - the *return* side is backfillable
+  even though option OI/greeks are not) + `scripts/backtest_demo.py` run the full scorecard
+  (sign-safe permutation test + exposure-matched control + bootstrap CI) on a transparent
+  MA-momentum signal. Proven live (SPY 50d: +25.1% vs b&h +35.1%, permutation 54th pct = no
+  timing skill beyond beta - the harness correctly refuses to credit exposure as skill). The
+  GEX `signals.rules.regime_signal` plugs into the identical scorecard; it just needs a time
+  series of chains, which the nightly store accumulates (one session per trading day).
+  `read_canonical` now returns canonical dtypes, so `metrics.gamma_snapshot` runs directly on
+  stored chains (cross-section verified 7/2: QQQ/SPY/IWM dealer-short-gamma, single names long).
 - **Reviewed:** MassiveAdapter + deploy hardened across multiple fable passes (PRs #11, #12,
   #13). VPS: Ubuntu 24.04, systemd 255, python3.12, ubuntu-owned `/opt/gamma-research`.
 - **Next:** SPX/NDX/RUT index capture (needs settlement/OCC-root in the canonical key so
