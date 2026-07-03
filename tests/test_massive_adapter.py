@@ -64,6 +64,8 @@ class TestUtilHelpers(unittest.TestCase):
         self.assertIsNone(occ_root(None))
         self.assertIsNone(occ_root(""))
         self.assertIsNone(occ_root("short"))
+        # a long but non-OSI ticker must NOT mint a wrong root (shape-checked tail)
+        self.assertIsNone(occ_root("O:NOTAREALOSITICKERSTRING"))
 
     def test_bs_implied_spot_rejects_bad_inputs(self):
         from src.ingest.adapters._util import bs_implied_spot

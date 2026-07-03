@@ -77,9 +77,11 @@ def read_canonical(root: str, symbol: str,
     for name in NULLABLE_FIELDS:
         if name not in frame.columns:
             frame[name] = pd.Series([pd.NA] * len(frame), dtype=pandas_dtypes()[name])
-    # `root` (added to the required key later) is absent on legacy partitions, which were
-    # all standard equity options where the OCC root equals the ticker: backfill it from
-    # `symbol` so pre-`root` partitions stay readable (and correct) instead of failing.
+    # `root` (added to the required key later) is absent on legacy partitions. Equity
+    # captures have root == ticker, and the only pre-`root` index captures were collision-
+    # free on the old key, so deriving root from `symbol` keeps them readable and unique.
+    # (A rare secondary index root, e.g. a small DJXW tail under DJX, would be labeled DJX -
+    # a label-only inaccuracy; OI and GEX are unaffected since the metric sums all rows.)
     if "root" not in frame.columns and "symbol" in frame.columns:
         frame["root"] = frame["symbol"]
     # Return canonical column order + dtypes. Parquet date32 otherwise reads back as
