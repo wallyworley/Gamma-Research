@@ -42,6 +42,15 @@ vendors (historicaloptiondata.com class, hundreds of dollars). The adapter archi
 makes ingest a one-day job (new `ChainAdapter` for the purchased format). **This is the
 single highest-EV dollar spent on the project.** Backtests this quarter instead of next year.
 
+*Evaluated and rejected (2026-07-04):* the free DoltHub `post-no-preference/options`
+database (years of EOD chains). Schema verified live via the DoltHub SQL API: it carries
+bid/ask, IV, and full greeks but **no open interest and no volume** - the exact weight GEX
+runs on - so it cannot backfill GEX history. Secondary uses only: independent
+cross-validation of our greeks/implied spot, and free IV-history features. DoltHub is also
+not a fit as the store/backup itself: versioning is redundant for an immutable PIT store, a
+row-store loses badly to parquet+DuckDB for analytical scans, and public repos would
+republish licensed vendor data.
+
 ### 3. Test volatility prediction before direction (open finding F4)
 The academically supported GEX effect is on **realized volatility and its distribution**,
 not drift: dealer long-gamma hedging suppresses vol, short-gamma amplifies it (JFE / JEDC
