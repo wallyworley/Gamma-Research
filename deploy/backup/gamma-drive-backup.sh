@@ -2,26 +2,27 @@
 #
 # gamma-drive-backup.sh - off-site (Google Drive) backup layer for the gamma store.
 #
-# Runs nightly ON THE VPS (the always-on box backs itself up; the Mac pull is the
-# second, local layer). Uploads ONE tar.gz per captured session to the rclone
-# remote, idempotently: every run lists the remote and uploads any session tarball
-# that is missing, so a night lost to downtime self-heals on the next run and the
-# very first run backfills the whole store. Session tarballs are unique data (the
-# store is append-only), so nothing is ever pruned. Data only: the VPS .env is
-# backed up by the Mac pull layer, never sent to Drive.
+# Runs nightly ON THE VPS. Uploads ONE tar.gz per captured session to the rclone
+# remote, driven by a partition-count MANIFEST: a session is (re)uploaded whenever its
+# local partition count differs from the count recorded at last upload. That makes it
+# correct under every write pattern: the first run backfills everything, a lost night
+# self-heals, and a later backfill phase that ADDS symbols to an already-uploaded
+# historic session triggers a re-upload (the old once-only design left stale tarballs).
+# Sessions written to in the last 30 minutes are deferred to the next run (a backfill
+# may still be adding partitions to them). Data only: the VPS .env is backed up by the
+# Mac pull layer, never sent to Drive.
 #
-# Gated on the rclone remote existing (remote name: gdrive, scope drive.file), so
-# this can be installed before authorization and goes live the moment
-# /home/ubuntu/.config/rclone/rclone.conf carries the token.
-#
-# SOURCE OF TRUTH is the repo copy (deploy/backup/gamma-drive-backup.sh); the
-# systemd unit runs /usr/local/bin/gamma-drive-backup.sh. Re-copy after editing.
+# Gated on the rclone remote existing (remote name: gdrive), so it can be installed
+# before authorization. SOURCE OF TRUTH is the repo copy (deploy/backup/); the systemd
+# unit runs /usr/local/bin/gamma-drive-backup.sh. Re-copy after editing.
 
 set -uo pipefail
 
 DATA=/opt/gamma-research/data
 REMOTE="gdrive:gamma-research/store"
-LOG="$DATA/.drive-backup.log"   # lives in the store, so the Mac pull mirrors it too
+LOG="$DATA/.drive-backup.log"
+MANIFEST="$DATA/.drive-backup-manifest"   # lines: <session> <n_partitions_at_upload>
+RECENT_MIN=30                             # defer sessions written within the last N minutes
 
 ts() { date -u +%FT%TZ; }
 
@@ -30,31 +31,38 @@ if ! rclone listremotes 2>/dev/null | grep -q '^gdrive:'; then
     exit 0
 fi
 
-# Sessions present locally (date=YYYY-MM-DD partition dirs).
+touch "$MANIFEST"
 mapfile -t sessions < <(find "$DATA" -maxdepth 2 -type d -name 'date=*' -path "$DATA/symbol=*" \
                         | sed 's/.*date=//' | sort -u)
-# Session tarballs already on the remote.
-have="$(rclone lsf "$REMOTE" 2>/dev/null | sed -n 's/^gamma-\(.*\)\.tar\.gz$/\1/p')"
 
-up=0; fail=0
+up=0; fail=0; deferred=0; unchanged=0
 for s in "${sessions[@]}"; do
-    printf '%s\n' "$have" | grep -qx "$s" && continue
+    n_local=$(find "$DATA" -maxdepth 2 -type d -name "date=$s" -path "$DATA/symbol=*" | wc -l | tr -d ' ')
+    n_manifest=$(awk -v k="$s" '$1==k{print $2}' "$MANIFEST" | tail -1)
+    if [ "${n_manifest:-}" = "$n_local" ]; then
+        unchanged=$((unchanged + 1)); continue
+    fi
+    # still being written? defer to the next nightly run
+    recent=$(find "$DATA" -maxdepth 3 -path "*date=$s*" -name chain.parquet -mmin "-$RECENT_MIN" | head -1)
+    if [ -n "$recent" ]; then
+        deferred=$((deferred + 1)); continue
+    fi
     tmp="/tmp/gamma-$s.tar.gz"
-    # Partition paths are shell-safe by construction (symbol charset is [A-Z0-9.-]).
     if ! (cd "$DATA" && find . -maxdepth 2 -type d -name "date=$s" -path "./symbol=*" \
           | sed 's|^\./||' | tar -czf "$tmp" -T -); then
         fail=$((fail + 1)); rm -f "$tmp"; continue
     fi
     if rclone copyto "$tmp" "$REMOTE/gamma-$s.tar.gz" 2>>"$LOG"; then
         up=$((up + 1))
+        grep -v "^$s " "$MANIFEST" > "$MANIFEST.tmp" || true
+        echo "$s $n_local" >> "$MANIFEST.tmp"
+        mv "$MANIFEST.tmp" "$MANIFEST"
     else
         fail=$((fail + 1))
     fi
     rm -f "$tmp"
 done
 
-# Heartbeat mirror (tiny; overwritten each run).
 rclone copyto "$DATA/.last_run.json" "$REMOTE/.last_run.json" 2>/dev/null || true
-
-echo "$(ts) status=$([ $fail -eq 0 ] && echo ok || echo error) uploaded=$up failed=$fail sessions_local=${#sessions[@]}" >> "$LOG"
+echo "$(ts) status=$([ $fail -eq 0 ] && echo ok || echo error) uploaded=$up unchanged=$unchanged deferred=$deferred failed=$fail sessions_local=${#sessions[@]}" >> "$LOG"
 [ "$fail" -eq 0 ]
