@@ -86,8 +86,10 @@ def _priced_inputs(df: pd.DataFrame, cfg: EngineConfig):
 def net_vanna_exposure(df: pd.DataFrame, *, config: EngineConfig | None = None) -> VannaExposure:
     """Aggregate dealer vanna exposure (proxy), skipping null/non-positive-IV rows.
 
-    Positive net_vanna_proxy => a rise in IV pushes the Street's aggregate hedge
-    that many dollars of delta long (buy), a fall that many short.
+    The value is the change in the dealer BOOK's dollar delta per +1 vol-point of
+    IV. The induced re-hedge flow is the opposite side: a positive value means an IV
+    rise lifts the Street's book delta by that many dollars, which dealers SELL to
+    stay hedged (and buy on an IV fall).
     """
     require_single_snapshot(df)
     cfg = resolve_config(config)
@@ -105,8 +107,10 @@ def net_vanna_exposure(df: pd.DataFrame, *, config: EngineConfig | None = None) 
 def net_charm_exposure(df: pd.DataFrame, *, config: EngineConfig | None = None) -> CharmExposure:
     """Aggregate dealer charm exposure (proxy), skipping null/non-positive-IV rows.
 
-    Positive net_charm_proxy => one calendar day passing pushes the Street's
-    aggregate hedge that many dollars of delta long (buy), holding spot/IV fixed.
+    The value is the change in the dealer BOOK's dollar delta per +1 calendar day,
+    holding spot/IV fixed. The induced re-hedge flow is the opposite side: a positive
+    value means time decay lifts the Street's book delta by that many dollars, which
+    dealers SELL to stay hedged.
     """
     require_single_snapshot(df)
     cfg = resolve_config(config)
