@@ -1,0 +1,14 @@
+# ThetaData historical backfill dependencies (OPTIONAL - install only when running
+# scripts/backfill_thetadata.py or the thetadata ChainAdapter).
+#
+# Deliberately NOT in requirements.txt / requirements.lock.txt: the nightly capture path
+# (snapshot_universe / capture / massive) must never import `thetadata`, and the stdlib CI
+# leg must keep collecting without it. The adapter imports the client lazily inside
+# fetch_raw, so `import src.ingest.adapters` works with only the base data stack installed.
+#
+# Loose pins (this is an off-nightly, run-by-hand tool). python-dotenv is an undeclared
+# runtime dependency of the thetadata client (it reads THETADATA_API_KEY from .env).
+thetadata>=1.0
+python-dotenv>=1.0
+
+# Requires the base data stack too (pandas / pyarrow): pip install -r requirements.txt
