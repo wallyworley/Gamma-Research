@@ -351,15 +351,23 @@ class ThetadataAdapter(ChainAdapter):
             raise ValueError(f"Thetadata {sym}: cannot determine session (no session_date)")
 
         # Spot: the vendor's own underlying_price (a real close), constant across the
-        # chain. Median over every greeks row (robust to a stray cell); raise if none is
-        # positive rather than write a chain with no honest spot.
-        spots = [s for section in roots.values()
-                 for g in (section.get("greeks") or [])
+        # chain. Median over every greeks row (robust to a stray cell).
+        greeks_rows = [g for section in roots.values() for g in (section.get("greeks") or [])]
+        if not greeks_rows:
+            # OI-only session: the vendor's greeks history has a per-symbol floor (e.g.
+            # SPX greeks begin 2017-01 while its OI extends further back). Without greeks
+            # there is no spot and no gamma, so the session cannot drive GEX: a clean
+            # backfill skip, not a failure (the runner counts it and moves on).
+            raise NoDataForSession(
+                f"Thetadata {sym}: open interest only (no greeks) for session "
+                f"{session.isoformat()}; before the vendor's greeks history floor")
+        spots = [s for g in greeks_rows
                  if (s := num(g.get("underlying_price"))) is not None and s > 0]
         if not spots:
             raise ValueError(
-                f"Thetadata {sym}: no positive underlying_price on any greeks row for "
-                f"session {session.isoformat()}; refusing to write a chain with no spot")
+                f"Thetadata {sym}: greeks rows exist but none carries a positive "
+                f"underlying_price for session {session.isoformat()}; refusing to write "
+                "a chain with no honest spot")
         spot = statistics.median(spots)
 
         quote_ts = session_close_utc(session)

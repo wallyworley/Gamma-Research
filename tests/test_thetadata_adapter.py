@@ -173,6 +173,15 @@ class TestThetadataGuards(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._adapter().normalize(raw, symbol="AAPL")
 
+    def test_oi_only_session_is_clean_skip(self):
+        # A session with OI but ZERO greeks rows (before the vendor's per-symbol greeks
+        # floor, e.g. SPX pre-2017) has no spot and no gamma: it must raise
+        # NoDataForSession (the runner's clean skip), not a hard failure.
+        from src.ingest.adapters.thetadata import NoDataForSession
+        raw = self._raw([], [self._oi(100, "CALL", oi=1000)])
+        with self.assertRaises(NoDataForSession):
+            self._adapter().normalize(raw, symbol="SPX")
+
     def test_no_contracts_raises(self):
         raw = self._raw([], [])
         with self.assertRaises(ValueError):
