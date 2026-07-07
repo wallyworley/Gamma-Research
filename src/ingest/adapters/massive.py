@@ -290,7 +290,10 @@ class MassiveAdapter(ChainAdapter):
                 stale_day += 1
 
             root = occ_root(d.get("ticker")) or sym
-            if nonstandard_root(root, sym):   # adjusted/alternate root (item 10)
+            # Corporate-actions flag (item 10): an adjusted root (AVGO1) on an EQUITY.
+            # Index captures are excluded - alternate roots there (SPXW under SPX) are
+            # expected series, not corporate actions, and would fire every night.
+            if sym not in self.index_roots and nonstandard_root(root, sym):
                 nonstd_root += 1
 
             rows.append({
