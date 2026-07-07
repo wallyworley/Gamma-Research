@@ -182,9 +182,12 @@ class TestThetadataGuards(unittest.TestCase):
         with self.assertRaises(NoDataForSession):
             self._adapter().normalize(raw, symbol="SPX")
 
-    def test_no_contracts_raises(self):
+    def test_no_contracts_is_clean_skip(self):
+        # A fully empty session (no greeks, no OI) is unusable but not anomalous:
+        # a clean NoDataForSession skip, same as the OI-only pre-floor case.
+        from src.ingest.adapters.thetadata import NoDataForSession
         raw = self._raw([], [])
-        with self.assertRaises(ValueError):
+        with self.assertRaises(NoDataForSession):
             self._adapter().normalize(raw, symbol="AAPL")
 
     def test_index_two_roots_both_kept_no_collision(self):

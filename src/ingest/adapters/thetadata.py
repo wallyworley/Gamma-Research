@@ -359,8 +359,8 @@ class ThetadataAdapter(ChainAdapter):
             # there is no spot and no gamma, so the session cannot drive GEX: a clean
             # backfill skip, not a failure (the runner counts it and moves on).
             raise NoDataForSession(
-                f"Thetadata {sym}: open interest only (no greeks) for session "
-                f"{session.isoformat()}; before the vendor's greeks history floor")
+                f"Thetadata {sym}: no greeks rows for session {session.isoformat()} "
+                "(OI-only or empty; before the vendor's greeks history floor)")
         spots = [s for g in greeks_rows
                  if (s := num(g.get("underlying_price"))) is not None and s > 0]
         if not spots:
