@@ -55,6 +55,24 @@ def canonical_frame():
     return df.astype(schema.pandas_dtypes())
 
 
+def session_frame(session_date, open_interest):
+    """A tiny 1-row canonical frame for one SPY session (distinct OI per session)."""
+    import pandas as pd
+
+    row = {
+        "symbol": "SPY", "root": "SPY",
+        "quote_ts": pd.Timestamp(f"{session_date} 20:00", tz="UTC"),
+        "expiration": pd.Timestamp("2024-06-21"), "strike": 530.0, "type": "call",
+        "underlying_price": 528.4, "bid": 3.1, "ask": 3.3, "last": 3.2,
+        "open_interest": open_interest, "oi_asof_date": pd.Timestamp("2024-05-31"),
+        "volume": 4200, "iv": 0.14, "delta": 0.42, "gamma": 0.03, "theta": -0.05,
+        "vega": 0.11, "rho": 0.02, "_iv_source": "eodhd", "_greek_source": "eodhd",
+        "_adapter": "eodhd", "_spot_source": "vendor_close",
+    }
+    df = pd.DataFrame([row], columns=schema.field_names())
+    return df.astype(schema.pandas_dtypes())
+
+
 @unittest.skipUnless(_HAVE_STACK, "pandas/pyarrow not installed")
 class TestFrameValidation(unittest.TestCase):
     def test_good_frame_passes(self):
@@ -113,6 +131,66 @@ class TestParquetRoundTrip(unittest.TestCase):
         self.assertIn("_spot_source", back.columns)
         self.assertTrue(back["_spot_source"].isna().all())
         self.assertEqual(schema.validate_frame(back), [])
+
+    def _write_three_sessions(self, root):
+        from src.ingest import io
+
+        # Written out of order (06-05 first) to prove the reader sorts, not the writer.
+        for d, oi in ((dt.date(2024, 6, 5), 5000),
+                      (dt.date(2024, 6, 3), 3000),
+                      (dt.date(2024, 6, 4), 4000)):
+            io.write_canonical(session_frame(d.isoformat(), oi), root, "SPY", d)
+
+    def test_iter_partitions_lists_matches_in_order(self):
+        from src.ingest import io
+
+        with tempfile.TemporaryDirectory() as root:
+            self._write_three_sessions(root)
+            # An unrelated symbol/session must not leak into a SPY scan.
+            io.write_canonical(session_frame("2024-06-04", 9), root, "QQQ", dt.date(2024, 6, 4))
+
+            got = list(io.iter_partitions(root, symbol="SPY"))
+            self.assertEqual([d for _sym, d, _p in got],
+                             [dt.date(2024, 6, 3), dt.date(2024, 6, 4), dt.date(2024, 6, 5)])
+            self.assertTrue(all(sym == "SPY" for sym, _d, _p in got))
+            self.assertTrue(all(p.endswith("chain.parquet") for _s, _d, p in got))
+
+            # Date-range filter (inclusive) narrows the scan.
+            ranged = list(io.iter_partitions(root, symbol="SPY",
+                                             start=dt.date(2024, 6, 4), end="2024-06-05"))
+            self.assertEqual([d for _s, d, _p in ranged],
+                             [dt.date(2024, 6, 4), dt.date(2024, 6, 5)])
+
+            # Both symbols visible when unfiltered.
+            self.assertEqual({sym for sym, _d, _p in io.iter_partitions(root)}, {"SPY", "QQQ"})
+
+    def test_read_symbol_history_concatenates_sorted(self):
+        from src.ingest import io
+
+        with tempfile.TemporaryDirectory() as root:
+            self._write_three_sessions(root)
+            hist = io.read_symbol_history(root, "SPY")
+
+        self.assertEqual(len(hist), 3)
+        self.assertEqual(list(hist.columns), schema.field_names())
+        # Ordered by quote_ts ascending regardless of write order (OI encodes the day).
+        self.assertEqual(list(hist["open_interest"]), [3000, 4000, 5000])
+        self.assertTrue(hist["quote_ts"].is_monotonic_increasing)
+        self.assertEqual(schema.validate_frame(hist), [])
+
+    def test_read_symbol_history_range_and_empty(self):
+        from src.ingest import io
+
+        with tempfile.TemporaryDirectory() as root:
+            self._write_three_sessions(root)
+            mid = io.read_symbol_history(root, "SPY", start="2024-06-04")
+            self.assertEqual(list(mid["open_interest"]), [4000, 5000])
+
+            # No matching partition -> an empty, canonically-typed frame (not an error).
+            empty = io.read_symbol_history(root, "NOPE")
+        self.assertEqual(len(empty), 0)
+        self.assertEqual(list(empty.columns), schema.field_names())
+        self.assertEqual(dict(empty.dtypes.astype(str)), schema.pandas_dtypes())
 
     def test_read_backfills_root_from_symbol_on_legacy_partition(self):
         # A partition written before `root` (a REQUIRED key field) existed: read_canonical

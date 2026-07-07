@@ -12,9 +12,10 @@ data stack (pyarrow/pandas) is installed; the layout itself is fixed here.
 
 from __future__ import annotations
 
+import glob
 import os
 from datetime import date, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterator
 
 from .schema import (
     NULLABLE_FIELDS,
@@ -29,6 +30,17 @@ if TYPE_CHECKING:  # pragma: no cover
     import pandas as pd
 
 _FILENAME = "chain.parquet"
+
+
+def _as_date(value: "date | datetime | str") -> date:
+    """Coerce a date / datetime / ISO string to a plain ``date`` (for range filters)."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        return date.fromisoformat(value[:10])
+    raise TypeError(f"cannot interpret {value!r} as a date")
 
 
 def write_canonical(frame: "pd.DataFrame", root: str, symbol: str,
@@ -92,4 +104,64 @@ def read_canonical(root: str, symbol: str,
     return frame
 
 
-__all__ = ["write_canonical", "read_canonical"]
+def iter_partitions(root: str, symbol: str | None = None,
+                    start: "date | datetime | str | None" = None,
+                    end: "date | datetime | str | None" = None) -> "Iterator[tuple[str, date, str]]":
+    """Yield ``(symbol, date, path)`` for each stored chain partition matching the filters.
+
+    Globs the ``symbol=<SYM>/date=<YYYY-MM-DD>`` layout under ``root``. ``symbol`` (if
+    given) restricts to one ticker; ``start``/``end`` (inclusive, date/datetime/ISO str)
+    restrict the session date. Results are ordered by (symbol, date) so a caller reading
+    a symbol's history walks its sessions in time order. No data stack needed - this only
+    inspects the directory tree, so a scan can plan before any parquet is read.
+    """
+    sym_glob = f"symbol={symbol.upper()}" if symbol is not None else "symbol=*"
+    pattern = os.path.join(root, sym_glob, "date=*", _FILENAME)
+    lo = _as_date(start) if start is not None else None
+    hi = _as_date(end) if end is not None else None
+
+    found: list[tuple[str, date, str]] = []
+    for path in glob.glob(pattern):
+        sym: str | None = None
+        d: date | None = None
+        for part in os.path.relpath(path, root).split(os.sep):
+            if part.startswith("symbol="):
+                sym = part[len("symbol="):]
+            elif part.startswith("date="):
+                try:
+                    d = date.fromisoformat(part[len("date="):])
+                except ValueError:
+                    d = None
+        if sym is None or d is None:
+            continue
+        if lo is not None and d < lo:
+            continue
+        if hi is not None and d > hi:
+            continue
+        found.append((sym, d, path))
+    yield from sorted(found, key=lambda t: (t[0], t[1]))
+
+
+def read_symbol_history(root: str, symbol: str,
+                        start: "date | datetime | str | None" = None,
+                        end: "date | datetime | str | None" = None) -> "pd.DataFrame":
+    """Read every stored session for ``symbol`` in [start, end] as one canonical frame.
+
+    Concatenates ``read_canonical`` per matching partition (so every schema-evolution
+    backfill - nullable columns, legacy ``root`` - applies to each), sorted by
+    ``quote_ts``. Each partition is validated on read, so the result is canonical by
+    construction. Returns an empty, canonically-typed frame when no partition matches.
+    This is the time-series access path the metric / eval layers consume.
+    """
+    import pandas as pd
+
+    frames = [read_canonical(root, sym, d)
+              for sym, d, _ in iter_partitions(root, symbol=symbol, start=start, end=end)]
+    if not frames:
+        empty = {name: pd.Series([], dtype=pandas_dtypes()[name]) for name in field_names()}
+        return pd.DataFrame(empty)[field_names()]
+    out = pd.concat(frames, ignore_index=True)
+    return out.sort_values("quote_ts", kind="stable").reset_index(drop=True)
+
+
+__all__ = ["write_canonical", "read_canonical", "iter_partitions", "read_symbol_history"]
