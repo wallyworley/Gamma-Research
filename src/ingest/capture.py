@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 from . import io as _io
 from .adapter import ChainAdapter
+from .market_calendar import is_trading_day
 
 _log = logging.getLogger(__name__)
 _ET = ZoneInfo("America/New_York")
@@ -34,27 +35,14 @@ def is_after_close(now_et: datetime | None = None) -> bool:
     """True if the current ET wall-clock is past the post-close buffer (safe for EOD)."""
     return (now_et or datetime.now(_ET)).time() >= _MIN_EOD_RUN_ET
 
-# NYSE full-day market holidays (weekday closures only; weekends handled separately).
-# Hardcoded to avoid a calendar dependency - MAINTAIN yearly or swap for the
-# `exchange_calendars` package. On a non-trading day the Cboe generation clock's ET
-# date is a non-session day, so a capture would relabel the stale prior-session chain
-# to a bogus session and write a junk partition (review finding R1).
-_MARKET_HOLIDAYS = frozenset({
-    date(2025, 1, 1), date(2025, 1, 20), date(2025, 2, 17), date(2025, 4, 18),
-    date(2025, 5, 26), date(2025, 6, 19), date(2025, 7, 4), date(2025, 9, 1),
-    date(2025, 11, 27), date(2025, 12, 25),
-    date(2026, 1, 1), date(2026, 1, 19), date(2026, 2, 16), date(2026, 4, 3),
-    date(2026, 5, 25), date(2026, 6, 19), date(2026, 7, 3), date(2026, 9, 7),
-    date(2026, 11, 26), date(2026, 12, 25),
-    date(2027, 1, 1), date(2027, 1, 18), date(2027, 2, 15), date(2027, 3, 26),
-    date(2027, 5, 31), date(2027, 6, 18), date(2027, 7, 5), date(2027, 9, 6),
-    date(2027, 11, 25), date(2027, 12, 24),
-})
 
-
-def is_trading_day(d: date) -> bool:
-    """True if ``d`` is a NYSE session (weekday and not a listed market holiday)."""
-    return d.weekday() < 5 and d not in _MARKET_HOLIDAYS
+# ``is_trading_day`` (and the underlying NYSE holiday set) now live in
+# ``src.ingest.market_calendar`` so this capture guard and the adapters' oi_asof
+# dating read the same calendar (review finding F1). On a non-trading day the Cboe/
+# Massive generation clock's ET date is a non-session day, so a capture would relabel
+# the stale prior-session chain to a bogus session and write a junk partition (R1) -
+# the guard below no-ops instead. Re-exported here to keep this module's public API
+# unchanged.
 
 
 def capture_snapshot(adapter: ChainAdapter, symbol: str, root: str, *,

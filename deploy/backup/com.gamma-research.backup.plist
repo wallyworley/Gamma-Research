@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.gamma-research.backup</string>
+
+    <!-- Runs the INSTALLED copy of the script (outside the repo), so the temporary
+         deploy worktree the repo lives in can be created/removed without affecting
+         the scheduled job. Re-install the script after editing the repo copy. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/walterworley/Backups/gamma-research/bin/pull_backup.sh</string>
+    </array>
+
+    <!-- 20:30 local time, every day. launchd fires a missed run on wake. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>20</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <!-- Script appends its own status line to this log; also capture stdout/stderr
+         (rsync/scp diagnostics on failure) to the same file. -->
+    <key>StandardOutPath</key>
+    <string>/Users/walterworley/Library/Logs/gamma-backup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/walterworley/Library/Logs/gamma-backup.log</string>
+
+    <!-- Do not run on load; the 20:30 schedule (or a manual kickstart) drives it. -->
+    <key>RunAtLoad</key>
+    <false/>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

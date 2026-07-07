@@ -77,14 +77,15 @@ class TestEodhdNormalize(unittest.TestCase):
             _load_raw(), symbol="AAPL", quote_date=_QUOTE_DATE)
         self.assertTrue((df["oi_asof_date"].dt.date == _QUOTE_DATE).all())
 
-    def test_oi_asof_weekday_not_holiday_aware(self):
-        # F1: the stamp is a weekday lag. Weekend-skip is correct...
+    def test_oi_asof_holiday_aware(self):
+        # F1 fixed: oi_asof is stamped via the shared market calendar, so the lag now
+        # skips market holidays, not only weekends. Quote date Mon 2026-07-06 -> the
+        # prior *trading* day is Thu 2026-07-02; the old weekday-only lag would have
+        # named Fri 2026-07-03, which is the observed Independence Day holiday.
         from src.ingest.adapters.eodhd import EodhdAdapter
-        a = EodhdAdapter(api_token="test")
-        self.assertEqual(a._oi_asof_date(dt.date(2024, 6, 3)), dt.date(2024, 5, 31))  # Mon->Fri
-        # ...but it is NOT holiday-aware (known, documented limitation): a lag across
-        # Independence Day names a non-session date rather than skipping it.
-        self.assertEqual(a._oi_asof_date(dt.date(2024, 7, 5)), dt.date(2024, 7, 4))
+        df = EodhdAdapter(api_token="test").normalize(
+            _load_raw(), symbol="AAPL", quote_date=dt.date(2026, 7, 6))
+        self.assertTrue((df["oi_asof_date"].dt.date == dt.date(2026, 7, 2)).all())
 
     def test_duplicate_contracts_deduped(self):
         # F5: doubled records must dedupe to unique contracts, not double-count.

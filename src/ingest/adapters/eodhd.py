@@ -22,16 +22,14 @@ Two facts drive the design:
     document what session its `open_interest` is as-of. Following the standard
     convention (OCC publishes a session's OI the next morning, so the freshest OI
     knowable at date T's close is session T-1's), the adapter stamps
-    `oi_asof_date = T - oi_lag_days weekdays` (default 1). NB this is a *weekday*
-    lag, weekend-aware only - it is NOT holiday/trading-calendar aware, so a lag
-    that crosses a market holiday will name a non-session date (a known, tolerated
-    imprecision on an already-unverified field; wire a market calendar if the field
-    ever gains a consumer). Nothing downstream shifts OI across time; a single
-    snapshot just uses OI as-of that stamped date. **VERIFY before trusting live
-    results (review finding F1):** fetch date T and T+1 for one symbol and compare
-    `open_interest`; if EODHD already reports the T-1 figure under date T, keep
-    `oi_lag_days=1`; if it reports same-session OI, set `oi_lag_days=0` and beware
-    that same-session OI is not knowable at T's close.
+    `oi_asof_date = prior_trading_day(T, oi_lag_days)` (default 1) via the shared
+    market calendar - now holiday- AND weekend-aware, so a lag crossing a market
+    holiday names the real prior session, not a closed day (F1 fixed). Nothing
+    downstream shifts OI across time; a single snapshot just uses OI as-of that
+    stamped date. **VERIFY which session before trusting live results:** fetch date T
+    and T+1 for one symbol and compare `open_interest`; if EODHD already reports the
+    T-1 figure under date T, keep `oi_lag_days=1`; if it reports same-session OI, set
+    `oi_lag_days=0` and beware that same-session OI is not knowable at T's close.
 
 **Chain-completeness caveat (review finding F2, UNVERIFIED):** `fetch_raw` filters
 the EOD options endpoint by `tradetime`. If `tradetime` is a last-trade field,
@@ -50,21 +48,16 @@ import json
 import logging
 import urllib.parse
 import urllib.request
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from ..adapter import ChainAdapter, register_adapter
 from ..schema import PRIMARY_KEY, field_names, pandas_dtypes
+from ._util import num, prior_trading_day, session_close_utc, to_int
 
 _log = logging.getLogger(__name__)
-
-# US options mark at the equity close; EOD snapshot timestamp = that close in UTC.
-# Using a real tz (not a fixed offset) keeps DST correct across the year.
-_MARKET_CLOSE = (16, 0)
-_MARKET_TZ = ZoneInfo("America/New_York")
 
 _OPTIONS_URL = "https://eodhd.com/api/mp/unicornbay/options/eod"
 _EOD_URL = "https://eodhd.com/api/eod/{symbol}.{exchange}"
@@ -72,31 +65,9 @@ _PAGE_LIMIT = 1000
 _HTTP_TIMEOUT = 30
 
 
-def _num(value: Any) -> float | None:
-    """Coerce to float; None/""/unparseable -> None. Zeros are kept as 0.0."""
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _int(value: Any) -> int | None:
-    f = _num(value)
-    return None if f is None else int(f)
-
-
 def _extract_records(page: dict[str, Any]) -> list[dict[str, Any]]:
     """Pull the list of `attributes` dicts out of one JSON:API page."""
     return [row.get("attributes", {}) for row in page.get("data", [])]
-
-
-def _session_close_utc(quote_date: date) -> datetime:
-    """The equity-close timestamp for `quote_date`, in UTC (DST-aware)."""
-    local = datetime(quote_date.year, quote_date.month, quote_date.day,
-                     _MARKET_CLOSE[0], _MARKET_CLOSE[1], tzinfo=_MARKET_TZ)
-    return local.astimezone(timezone.utc)
 
 
 @register_adapter
@@ -118,16 +89,6 @@ class EodhdAdapter(ChainAdapter):
         self.options_url = options_url
         self.eod_url = eod_url
 
-    def _oi_asof_date(self, quote_date: date):
-        """Assumed OI-as-of session: quote_date - oi_lag_days weekdays.
-
-        Weekend-aware only, NOT holiday-aware (F1); see class docstring.
-        """
-        if self.oi_lag_days <= 0:
-            return quote_date
-        stamped = pd.Timestamp(quote_date) - pd.tseries.offsets.BusinessDay(self.oi_lag_days)
-        return stamped.date()
-
     # ---- live I/O (integration-tested with a real token) ------------------ #
 
     def _get_json(self, url: str, params: dict[str, Any]) -> Any:
@@ -141,7 +102,7 @@ class EodhdAdapter(ChainAdapter):
         iso = quote_date.isoformat()
         rows = self._get_json(url, {"from": iso, "to": iso, "fmt": "json"})
         if isinstance(rows, list) and rows:
-            return _num(rows[-1].get("close"))
+            return num(rows[-1].get("close"))
         return None
 
     def fetch_raw(self, symbol: str, quote_date: date, **kwargs: Any) -> dict[str, Any]:
@@ -175,14 +136,17 @@ class EodhdAdapter(ChainAdapter):
 
     def normalize(self, raw: dict[str, Any], *, symbol: str, quote_date: date) -> pd.DataFrame:
         records = raw.get("records", [])
-        spot = _num(raw.get("underlying_close"))
+        spot = num(raw.get("underlying_close"))
         if spot is None:
             raise ValueError(
                 f"EODHD: no underlying EOD close for {symbol} on {quote_date.isoformat()}; "
                 "cannot set required underlying_price")
 
-        quote_ts = _session_close_utc(quote_date)
-        oi_asof = self._oi_asof_date(quote_date)  # assumed OI session (F1); see docstring
+        quote_ts = session_close_utc(quote_date)
+        # Assumed OI session (see class docstring): the prior trading day, now holiday-
+        # and weekend-aware via the shared market calendar (F1 fixed). oi_lag_days=0
+        # stamps quote_date itself.
+        oi_asof = prior_trading_day(quote_date, self.oi_lag_days)
         rows = []
         for rec in records:
             opt_type = str(rec.get("type", "")).lower()
@@ -190,21 +154,21 @@ class EodhdAdapter(ChainAdapter):
                 "symbol": symbol.upper(),
                 "quote_ts": quote_ts,
                 "expiration": rec.get("exp_date"),
-                "strike": _num(rec.get("strike")),
+                "strike": num(rec.get("strike")),
                 "type": opt_type,
                 "underlying_price": spot,
-                "bid": _num(rec.get("bid")),
-                "ask": _num(rec.get("ask")),
-                "last": _num(rec.get("last")),
-                "open_interest": _int(rec.get("open_interest")),
+                "bid": num(rec.get("bid")),
+                "ask": num(rec.get("ask")),
+                "last": num(rec.get("last")),
+                "open_interest": to_int(rec.get("open_interest")),
                 "oi_asof_date": oi_asof,
-                "volume": _int(rec.get("volume")),
-                "iv": _num(rec.get("volatility")),
-                "delta": _num(rec.get("delta")),
-                "gamma": _num(rec.get("gamma")),
-                "theta": _num(rec.get("theta")),
-                "vega": _num(rec.get("vega")),
-                "rho": _num(rec.get("rho")),
+                "volume": to_int(rec.get("volume")),
+                "iv": num(rec.get("volatility")),
+                "delta": num(rec.get("delta")),
+                "gamma": num(rec.get("gamma")),
+                "theta": num(rec.get("theta")),
+                "vega": num(rec.get("vega")),
+                "rho": num(rec.get("rho")),
                 "_iv_source": self.name,
                 "_greek_source": self.name,
                 "_adapter": self.name,

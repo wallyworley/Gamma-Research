@@ -43,9 +43,9 @@ Endpoints (auth via `Authorization: Bearer <MASSIVE_API_KEY>`, kept out of URLs)
 Per contract: `details.{contract_type,expiration_date,strike_price}`,
 `greeks.{delta,gamma,theta,vega}` (NO rho -> null), `implied_volatility`,
 `open_interest`, `day.{close,volume,last_updated}`. Bid/ask are not entitled on this
-tier (null). `oi_asof_date` = T-1 weekday (see _util / F1). A per-contract `day` bar
-from an earlier session is nulled out rather than mislabeled as this session's
-last/volume (review finding R1).
+tier (null). `oi_asof_date` = the prior trading day (shared market calendar, holiday-
+and weekend-aware; see _util / F1). A per-contract `day` bar from an earlier session is
+nulled out rather than mislabeled as this session's last/volume (review finding R1).
 """
 
 from __future__ import annotations
@@ -67,9 +67,10 @@ from ..schema import PRIMARY_KEY, field_names, pandas_dtypes, validate_frame
 from ._util import (
     bs_implied_spot,
     et_date_from_epoch_ns,
+    nonstandard_root,
     num,
     occ_root,
-    prior_weekday,
+    prior_trading_day,
     session_close_utc,
     to_int,
 )
@@ -256,10 +257,10 @@ class MassiveAdapter(ChainAdapter):
                       "(tier %d, dispersion %.4f)", sym, spot, n_used, tier, dispersion or 0.0)
 
         quote_ts = session_close_utc(session_date)
-        oi_asof = prior_weekday(session_date, self.oi_lag_days)
+        oi_asof = prior_trading_day(session_date, self.oi_lag_days)
 
         rows = []
-        skipped_expired = skipped_bad = stale_day = 0
+        skipped_expired = skipped_bad = stale_day = nonstd_root = 0
         for r in results:
             d = r.get("details") or {}
             strike = num(d.get("strike_price"))
@@ -288,8 +289,15 @@ class MassiveAdapter(ChainAdapter):
             elif day_date is not None:
                 stale_day += 1
 
+            root = occ_root(d.get("ticker")) or sym
+            # Corporate-actions flag (item 10): an adjusted root (AVGO1) on an EQUITY.
+            # Index captures are excluded - alternate roots there (SPXW under SPX) are
+            # expected series, not corporate actions, and would fire every night.
+            if sym not in self.index_roots and nonstandard_root(root, sym):
+                nonstd_root += 1
+
             rows.append({
-                "symbol": sym, "root": occ_root(d.get("ticker")) or sym,
+                "symbol": sym, "root": root,
                 "quote_ts": quote_ts, "expiration": exp,
                 "strike": strike, "type": ctype, "underlying_price": spot,
                 "bid": None, "ask": None, "last": last_px,
@@ -304,10 +312,13 @@ class MassiveAdapter(ChainAdapter):
         if not rows:
             raise ValueError(f"Massive {sym}: no valid contracts "
                              f"(skipped {skipped_bad} malformed, {skipped_expired} expired)")
-        if skipped_expired or skipped_bad or stale_day:
-            _log.warning("Massive %s: %d expired, %d malformed, %d stale-day-bar contract(s); "
+        if skipped_expired or skipped_bad or stale_day or nonstd_root:
+            # Nonstandard-root count is appended only when > 0 (adjusted/alternate OCC
+            # roots, e.g. AVGO1 near a split - a corporate-actions flag, item 10).
+            nonstd = f", {nonstd_root} nonstandard-root" if nonstd_root else ""
+            _log.warning("Massive %s: %d expired, %d malformed, %d stale-day-bar%s contract(s); "
                          "spot=%.4f via %s", sym, skipped_expired, skipped_bad, stale_day,
-                         spot, spot_source)
+                         nonstd, spot, spot_source)
 
         df = pd.DataFrame(rows, columns=field_names())
         df["quote_ts"] = pd.to_datetime(df["quote_ts"], utc=True)
