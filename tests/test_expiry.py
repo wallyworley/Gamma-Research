@@ -21,7 +21,11 @@ except ImportError:
     _HAVE_STACK = False
 
 from src.ingest import schema  # noqa: E402
-from src.metrics.expiry import days_to_monthly_opex, third_friday  # noqa: E402
+
+if _HAVE_STACK:
+    # src.metrics pulls in numpy/pandas at package import, so this must stay behind
+    # the stack guard or the stdlib-only CI leg fails at collection time.
+    from src.metrics.expiry import days_to_monthly_opex, third_friday  # noqa: E402
 
 _QD = dt.date(2024, 6, 3)
 
@@ -48,6 +52,7 @@ def mini_chain(contracts, *, spot=100.0, quote_date=_QD):
     return df.astype(scalar)
 
 
+@unittest.skipUnless(_HAVE_STACK, "pandas not installed")
 class TestThirdFriday(unittest.TestCase):
     def test_known_dates(self):
         self.assertEqual(third_friday(2024, 6), dt.date(2024, 6, 21))
@@ -58,6 +63,7 @@ class TestThirdFriday(unittest.TestCase):
         self.assertEqual(third_friday(2027, 1).weekday(), 4)  # Friday
 
 
+@unittest.skipUnless(_HAVE_STACK, "pandas not installed")
 class TestDaysToMonthlyOpex(unittest.TestCase):
     def test_before_this_month_opex(self):
         # 2024-06-03 -> 2024-06-21 is 18 days out.
