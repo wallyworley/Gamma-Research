@@ -30,6 +30,8 @@ base_currency = "USD"
 
 [metrics]
 gex_convention = "dollar_per_1pct"           # "dollar_per_1pct" | "shares"
+# valid: "long_call_short_put" (naive, default) | "short_call_long_put" |
+#        "otm_customer" (skew-adjusted: OTM puts -1, OTM calls +1, ITM excluded)
 dealer_sign_convention = "long_call_short_put"   # dealers long calls / short puts
 zerogex_grid_lo_frac = 0.7                   # ZeroGEX search grid low = lo_frac * spot
 zerogex_grid_hi_frac = 1.3

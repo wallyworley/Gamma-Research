@@ -74,8 +74,13 @@ class MetricsConfig:
     "Dealer-sign assumption"); pin it here and test sensitivity to it."""
 
     gex_convention: str = "dollar_per_1pct"          # "dollar_per_1pct" | "shares"
-    # Standard convention (terms doc "Foundational caveat"): dealers net long calls,
-    # net short puts, so Net GEX = Call gamma - Put gamma (call +1, put -1).
+    # Dealer-sign convention. Valid values (see src/metrics/_common.dealer_signs):
+    #   "long_call_short_put"  - naive/default (terms doc "Foundational caveat"):
+    #        dealers net long calls, net short puts, Net GEX = Call gamma - Put gamma.
+    #   "short_call_long_put"  - the mirror (call -1, put +1).
+    #   "otm_customer"         - skew-adjusted alternative (review item 5): OTM puts
+    #        (strike < spot) -1, OTM calls (strike > spot) +1, ITM excluded (sign 0).
+    # Default is unchanged; the sign-convention sensitivity sweep (F11) varies it.
     dealer_sign_convention: str = "long_call_short_put"
     # ZeroGEX search grid (hashed, so a run records the range it searched). A None
     # flip means "no crossing in this grid", not "no flip exists" (F10).

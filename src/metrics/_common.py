@@ -16,27 +16,82 @@ from ..config import EngineConfig
 
 CONTRACT_SIZE = 100
 
+# Calendar-day conventions for time-to-expiry (act/365 is the pinned default).
+# Single-sourced here so every greek recompute (ZeroGEX, vanna, charm) shares one
+# day count and cannot drift.
+DAY_COUNTS = {"act/365": 365.0, "act/365.25": 365.25}
+
 # Per-type dealer sign. long_call_short_put is the terms-doc standard: dealers
-# net long calls (+1), net short puts (-1).
+# net long calls (+1), net short puts (-1). "otm_customer" is not a simple
+# type -> sign map (it needs strike vs spot per row) and is handled specially in
+# dealer_signs() below.
 DEALER_SIGNS = {
     "long_call_short_put": {"call": 1.0, "put": -1.0},
     "short_call_long_put": {"call": -1.0, "put": 1.0},
 }
+
+# Conventions handled outside the DEALER_SIGNS type-map (spot-aware, per row).
+_SPOT_AWARE_CONVENTIONS = ("otm_customer",)
 
 
 def resolve_config(config: EngineConfig | None) -> EngineConfig:
     return config if config is not None else EngineConfig.default()
 
 
+def _otm_customer_signs(df: pd.DataFrame) -> np.ndarray:
+    """Dealer sign under the skew-adjusted "otm_customer" convention (review item 5).
+
+    The naive long-call/short-put assumption has been retired across the field; this
+    is one transparent alternative. It keeps the OTM direction of the naive model but
+    *excludes* in-the-money open interest instead of guessing its origin:
+
+      * OTM puts  (strike < spot): dealer sign -1  (customers buy protection)
+      * OTM calls (strike > spot): dealer sign +1  (customers buy upside)
+      * ITM options (and exactly-at-spot): sign 0, excluded.
+
+    ITM open interest is dropped because its origin is genuinely ambiguous: it is
+    mostly early-exercise leftovers and inter-dealer inventory, not a clean
+    customer-vs-dealer signal, so assigning it either sign injects noise. Requires
+    ``underlying_price`` (a required schema column) for the per-row spot.
+    """
+    spot = df["underlying_price"].astype("float64").to_numpy()
+    strike = df["strike"].astype("float64").to_numpy()
+    typ = df["type"].to_numpy()
+    signs = np.zeros(len(df), dtype=float)
+    signs[(typ == "call") & (strike > spot)] = 1.0
+    signs[(typ == "put") & (strike < spot)] = -1.0
+    return signs
+
+
 def dealer_signs(df: pd.DataFrame, convention: str) -> np.ndarray:
-    """Per-row dealer sign (+1/-1) from the option type under ``convention``."""
+    """Per-row dealer sign from the option type (and spot, for spot-aware conventions)."""
+    if convention == "otm_customer":
+        return _otm_customer_signs(df)
     try:
         mapping = DEALER_SIGNS[convention]
     except KeyError:
+        known = sorted(list(DEALER_SIGNS) + list(_SPOT_AWARE_CONVENTIONS))
         raise ValueError(
-            f"unknown dealer_sign_convention {convention!r}; "
-            f"known: {sorted(DEALER_SIGNS)}") from None
+            f"unknown dealer_sign_convention {convention!r}; known: {known}") from None
     return df["type"].map(mapping).fillna(0.0).to_numpy(dtype=float)
+
+
+def years_to_expiry(df: pd.DataFrame, day_count: str) -> np.ndarray:
+    """Calendar years from each row's quote date to its expiration, under ``day_count``.
+
+    Quote date is the UTC calendar date of ``quote_ts`` (EOD snapshots quote near
+    20:00 UTC, so this equals the ET session date). Shared by every greek recompute
+    so the time basis is identical across GEX, vanna, and charm.
+    """
+    try:
+        denom = DAY_COUNTS[day_count]
+    except KeyError:
+        raise NotImplementedError(
+            f"day_count {day_count!r} not supported; known: {sorted(DAY_COUNTS)}") from None
+    qd = df["quote_ts"].dt.tz_convert("UTC").dt.date
+    ed = df["expiration"].dt.date
+    days = np.array([(e - d).days for e, d in zip(ed, qd)], dtype=float)
+    return days / denom
 
 
 def dollar_factor(spot, gex_convention: str):
@@ -87,5 +142,5 @@ def greek_coverage(df: pd.DataFrame) -> dict:
     }
 
 
-__all__ = ["CONTRACT_SIZE", "DEALER_SIGNS", "resolve_config", "dealer_signs", "dollar_factor",
-           "require_single_snapshot", "greek_coverage"]
+__all__ = ["CONTRACT_SIZE", "DAY_COUNTS", "DEALER_SIGNS", "resolve_config", "dealer_signs",
+           "years_to_expiry", "dollar_factor", "require_single_snapshot", "greek_coverage"]
