@@ -1,14 +1,35 @@
-# Store backup (local pull from the VPS)
+# Store backups (Mac pull + Google Drive push)
 
-The VPS store `/opt/gamma-research/data` is the project's **only non-re-derivable
-asset**: the data source is snapshot-only, so open interest and greeks cannot be
-re-bought or re-computed after the fact. One disk failure resets the project to zero
-(quant review Tier 1, item 1). This job pulls a nightly mirror of the store (and the
-VPS `.env`) to local disk on this Mac.
+The VPS store `/opt/gamma-research/data` is the project's primary asset. The nightly
+Massive/Polygon captures are snapshot-only (not re-obtainable after the fact); the
+ThetaData-backfilled history is re-buyable in principle, but only down to per-symbol
+greeks floors and at re-download cost. One disk failure without a backup resets weeks
+of accumulation (quant review Tier 1, item 1), so the store lives in THREE places:
 
-## What it does
+| Layer | Where | Job | When |
+|---|---|---|---|
+| Primary | VPS `/opt/gamma-research/data` | capture + backfill write here | nightly / ongoing |
+| Local mirror | Mac `~/Backups/gamma-research` (+ VPS `.env`) | `pull_backup.sh` (launchd) | 20:30 local |
+| Off-site | Google Drive `gamma-research/store/` | `gamma-drive-backup.sh` (VPS systemd timer) | 23:45 UTC |
 
-`pull_backup.sh`:
+## Layer 3: Google Drive push (`gamma-drive-backup.sh`)
+
+Runs ON the VPS (the always-on box backs itself up; no Mac-awake dependency). Uploads
+one `gamma-<session>.tar.gz` per stored session to the `gdrive:` rclone remote
+(full-Drive-scope token installed at `/home/ubuntu/.config/rclone/rclone.conf`; tighten
+to `drive.file` scope by re-running `rclone config` on the Mac and re-copying the
+`[gdrive]` section). Uploads are driven by a **partition-count manifest**
+(`data/.drive-backup-manifest`): a session is (re)uploaded whenever its local partition
+count differs from the count at last upload, so a backfill phase that adds symbols to an
+already-uploaded historic date triggers a re-upload, and lost nights self-heal. Sessions
+written within the last 30 minutes are deferred one run. Status log:
+`data/.drive-backup.log` (also mirrored to the Mac by layer 2). Units:
+`gamma-drive-backup.{service,timer}` in `/etc/systemd/system/`; the unit runs the
+installed copy `/usr/local/bin/gamma-drive-backup.sh` (repo copy is source of truth,
+re-`install` after editing). Restore: download the tarballs and untar into a data root;
+partitions are self-contained.
+
+## Layer 2: Mac pull (`pull_backup.sh`)
 
 - `rsync -a` (no `--delete`) `ubuntu@40.160.233.235:/opt/gamma-research/data/` into
   `~/Backups/gamma-research/data/`, over `ssh -i ~/.ssh/id_ed25519` with

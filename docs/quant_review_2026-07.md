@@ -42,6 +42,20 @@ vendors (historicaloptiondata.com class, hundreds of dollars). The adapter archi
 makes ingest a one-day job (new `ChainAdapter` for the purchased format). **This is the
 single highest-EV dollar spent on the project.** Backtests this quarter instead of next year.
 
+**RESOLVED (2026-07-07): ThetaData Options Standard ($80/mo) chosen over Cboe DataShop.**
+Subscription covers the ENTIRE universe (vs per-symbol DataShop pricing), with historical
+open interest at every tier, IV/greeks from the Value tier, bulk endpoints + 2016 depth at
+Standard. Validated before adoption: OI matched our own captured store 100.00%
+contract-for-contract on both overlap sessions; their underlying_price confirmed our
+delta-inversion spot within 0.14%. Caveat found live: greeks history has per-symbol
+floors (SPX begins 2017-01), so the effective SPX era is ~9.5 years, not 10.5. Adapter +
+resumable backfill shipped (PR #20); Phase 1 (index/ETF/mega-cap complex, 2016->present)
+launched 2026-07-07. The Cboe **Open-Close Volume Summary** (participant-type signed
+flow, item 5's empirical fix; ~$1,200 quoted for SPX history) is DEFERRED with a decision
+rule: buy only if a GEX signal shows scorecard value AND the F11 convention sweep flags
+sign sensitivity; start with a 1-2 year SPX slice. It stays purchasable retroactively, so
+deferral costs nothing.
+
 *Evaluated and rejected (2026-07-04):* the free DoltHub `post-no-preference/options`
 database (years of EOD chains). Schema verified live via the DoltHub SQL API: it carries
 bid/ask, IV, and full greeks but **no open interest and no volume** - the exact weight GEX

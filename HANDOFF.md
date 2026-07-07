@@ -3,7 +3,8 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-02 (Massive/Polygon paid adapter + nightly VPS universe capture LIVE; two-tier spot recovery).
+Last updated: 2026-07-07 (quant-review fix batches A-D live; ThetaData validated as the
+history source; Phase 1 backfill 2016->present RUNNING on the VPS; three backup layers).
 
 ## LIVE: paid data + nightly VPS universe capture (start here)
 
@@ -78,11 +79,42 @@ every weekday, unattended, on the always-on OVH VPS.
   * Validated on real data: null-signal on 476 SPY sessions correctly earns ~0
     incremental adj-R2 (HAR baseline R2 0.43); first fully automated nightly ran
     2026-07-06 (4019/5299 captured incl. SPX/NDX/RUT with full OI under the root key).
-- **Next:** a real failure alert (`OnFailure=` mailer/webhook vs today's `.failures.log`
-  marker); optional VPS-to-Google-Drive off-site backup layer (needs one interactive
-  rclone OAuth); buy Cboe DataShop history (review item 2) and run the vol-forecast
-  scorecard on real GEX signals as the store accumulates; suite is 261 tests, keep BOTH
-  CI legs green (stdlib leg has no data stack - guard heavy imports in tests).
+- **HISTORY: ThetaData backfill (PR #20, 2026-07-07).** The cold-start gap (quant review
+  item 2) is resolved by **ThetaData Options Standard ($80/mo)**, key `THETADATA_API_KEY`
+  in `.env` (local + VPS). Validated before adoption: open interest matched our own store
+  **100.00% contract-for-contract** on both overlap sessions, and their `underlying_price`
+  independently confirmed our delta-inversion spot within 0.14%. Python lib (`thetadata`,
+  needs `python-dotenv`; `requirements-backfill.txt`, NOT in the prod lock) talks straight
+  to their API with the key, no terminal. `src/ingest/adapters/thetadata.py` (registered
+  "thetadata") joins their `greeks_eod` + `open_interest` endpoints per session onto the
+  canonical schema: vendor-close spot (`_spot_source="vendor_close"`), NBBO bid/ask
+  (which the Massive tier lacks), IV nulled where their solver's `iv_error > 0.05`,
+  index roots via `ROOT_MAP` (SPX+SPXW etc.). **Known floor:** their greeks history is
+  per-symbol (SPX greeks begin 2017-01; equities reach 2016); OI-only sessions raise
+  `NoDataForSession` = clean skip, so a wide-range backfill self-selects each symbol's
+  usable era. `scripts/backfill_thetadata.py` is resumable (skips existing partitions)
+  with per-day failure isolation. **Phase 1 launched 2026-07-07** (transient unit
+  `gamma-backfill-p1` on the VPS): SPX NDX RUT XSP DJX OEX SPY QQQ IWM HYG TLT AAPL NVDA
+  TSLA MSFT AMZN META, 2016 -> 2026-07-01; first write verified (SPX 2017-01-03, 8,810
+  contracts, spot 2257.83). Monitor: `journalctl -u gamma-backfill-p1`;
+  done = unit inactive + `data/.backfill_status.json`.
+- **Backups (three layers; deploy/backup/README.md):** VPS primary; Mac pull 20:30 local
+  (launchd, + VPS `.env`); Google Drive push 23:45 UTC (VPS systemd, per-session tarballs,
+  manifest-driven so grown sessions re-upload; `gdrive:` rclone remote, 5 TiB Drive).
+- **Spend state:** ThetaData Standard $80/mo (the history + potential ongoing source).
+  Cboe DataShop **deferred**: the only remaining item there is the Open-Close Volume
+  Summary for SPX (~$1,200 quoted; participant-type signed flow, Cboe-exclusive). Decision
+  rule: buy only if (a) a GEX signal shows real scorecard value AND (b) the F11
+  convention sweep flags sign-convention sensitivity; then start with a 1-2 year SPX
+  slice. That history stays purchasable retroactively, so deferral costs nothing.
+- **Next:** when Phase 1 completes, run the FIRST REAL EXPERIMENT:
+  `eval.volatility.vol_forecast_scorecard` on normalized SPX/SPY GEX
+  (`io.read_symbol_history` + `metrics.flow.gex_normalized` + bars from
+  `backtest.bars.fetch_daily_bars`), with the F11 `eval.sensitivity.convention_sweep`;
+  then the empirical dealer-sign calibration and the cross-sectional universe backfill
+  (phase 2). Also still open: a real failure alert (`OnFailure=` mailer/webhook vs the
+  `.failures.log` marker). Suite is 288 tests; keep BOTH CI legs green (the stdlib leg
+  has no data stack - guard heavy imports in tests).
 
 ## What this repo is
 
