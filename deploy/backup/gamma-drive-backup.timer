@@ -1,0 +1,13 @@
+[Unit]
+Description=Nightly Google Drive backup of the gamma store (after the capture window)
+
+[Timer]
+# 23:45 UTC is ~1.5-2.5h after the 17:30 ET capture finishes, year-round (the
+# capture ends by 21:40-22:40 UTC across DST). Weekend/holiday runs no-op fast
+# (no new session tarball to upload). Persistent catches a missed night on boot.
+OnCalendar=*-*-* 23:45:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,13 @@
+[Unit]
+Description=gamma-research off-site backup: per-session tarballs to Google Drive
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+ExecStart=/usr/local/bin/gamma-drive-backup.sh
+# First run backfills every session; later runs upload one ~150MB tarball.
+TimeoutStartSec=3600
+Nice=10
