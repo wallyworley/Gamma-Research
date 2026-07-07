@@ -35,10 +35,9 @@ from ._common import (
     dollar_factor,
     require_single_snapshot,
     resolve_config,
+    years_to_expiry,
 )
 from .blackscholes import bs_gamma
-
-_DAY_COUNTS = {"act/365": 365.0, "act/365.25": 365.25}
 
 
 def contract_gex(df: pd.DataFrame, *, config: EngineConfig | None = None,
@@ -83,18 +82,6 @@ def regime(net_value: float) -> str:
     return "flat"
 
 
-def _years_to_expiry(df: pd.DataFrame, day_count: str) -> np.ndarray:
-    try:
-        denom = _DAY_COUNTS[day_count]
-    except KeyError:
-        raise NotImplementedError(
-            f"day_count {day_count!r} not supported; known: {sorted(_DAY_COUNTS)}") from None
-    qd = df["quote_ts"].dt.tz_convert("UTC").dt.date
-    ed = df["expiration"].dt.date
-    days = np.array([(e - d).days for e, d in zip(ed, qd)], dtype=float)
-    return days / denom
-
-
 def _zero_gex_detail(df: pd.DataFrame, cfg: EngineConfig) -> dict:
     """Internal: ZeroGEX flip plus the grid it searched and the BS net at spot.
 
@@ -112,7 +99,7 @@ def _zero_gex_detail(df: pd.DataFrame, cfg: EngineConfig) -> dict:
     K = df["strike"].astype("float64").to_numpy()
     sigma = df["iv"].astype("float64").fillna(0.0).to_numpy()
     oi = df["open_interest"].astype("float64").fillna(0.0).to_numpy()
-    T = _years_to_expiry(df, cfg.pricer.day_count)
+    T = years_to_expiry(df, cfg.pricer.day_count)
 
     keep = (T > 0) & (sigma > 0) & (oi > 0)
     if not keep.any():

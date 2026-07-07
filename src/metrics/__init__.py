@@ -2,14 +2,26 @@
 
 M2: Net GEX, per-strike GEX, +/-GEX regime, ZeroGEX (gex.py, blackscholes.py).
 M3: the proxy suite - DEX / dealer delta balance, GEX Ratio, OI-concentration
-levels (COI/POI, COTMP/COTMC/CITMP/CITMC), PTrans/NTrans, and grade_proxy. All
-read the canonical schema and take conventions from EngineConfig; proprietary-
+levels (COI/POI, COTMP/COTMC/CITMP/CITMC), PTrans/NTrans, and grade_proxy.
+Batch B (flow metrics, 2026-07 quant review): volume-weighted GEX, normalized GEX,
+and a dealer-sign convention sweep (flow.py); vanna/charm dealer exposures
+(vanna_charm.py, blackscholes.py); and expiration-calendar features (expiry.py).
+All read the canonical schema and take conventions from EngineConfig; proprietary-
 derived metrics are labeled proxies. Needs the data stack.
 """
 
 from ._common import greek_coverage
-from .blackscholes import bs_gamma
+from .blackscholes import bs_charm, bs_gamma, bs_vanna
 from .dex import DexBalance, contract_dex, db_change, dealer_delta_balance
+from .expiry import days_to_monthly_opex, oi_expiring_within, third_friday
+from .flow import (
+    contract_gex_volume_proxy,
+    gex_normalized,
+    gex_volume_by_strike_proxy,
+    net_gex_by_convention,
+    net_gex_volume_proxy,
+    option_notional,
+)
 from .gex import (
     GexSnapshot,
     contract_gex,
@@ -29,6 +41,12 @@ from .levels import (
     oi_levels,
 )
 from .ratios import gex_ratio, trailing_percentile
+from .vanna_charm import (
+    CharmExposure,
+    VannaExposure,
+    net_charm_exposure,
+    net_vanna_exposure,
+)
 
 __all__ = [
     # M2
@@ -60,4 +78,22 @@ __all__ = [
     "GradeProxy",
     "grade_proxy",
     "DEFAULT_WEIGHTS",
+    # Batch B: flow metrics
+    "contract_gex_volume_proxy",
+    "net_gex_volume_proxy",
+    "gex_volume_by_strike_proxy",
+    "option_notional",
+    "gex_normalized",
+    "net_gex_by_convention",
+    # Batch B: vanna / charm exposures
+    "bs_vanna",
+    "bs_charm",
+    "VannaExposure",
+    "CharmExposure",
+    "net_vanna_exposure",
+    "net_charm_exposure",
+    # Batch B: expiration calendar
+    "third_friday",
+    "days_to_monthly_opex",
+    "oi_expiring_within",
 ]
