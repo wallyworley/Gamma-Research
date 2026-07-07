@@ -24,8 +24,8 @@ Design notes:
     `current_price` may include after-hours ticks yet is stamped as-of the close;
     option quotes are frozen at the close, so the spot/label mismatch is small.)
   * Exchange open interest is a prior-session figure, so `oi_asof_date` is stamped
-    T-1 weekday from the session date (`oi_lag_days`, default 1). Exchange
-    convention, but weekday-only, NOT holiday-aware (F1).
+    as the prior trading day from the session date (`oi_lag_days`, default 1), via
+    the shared market calendar - holiday- and weekend-aware (F1 fixed).
   * Snapshot-only: there is no historical date parameter. `quote_date` is
     informational (a mismatch warns); the data is always the current snapshot.
   * **Equities only for now.** Index chains with AM/PM settlement (e.g. SPX vs
@@ -54,29 +54,15 @@ import pandas as pd
 
 from ..adapter import ChainAdapter, register_adapter
 from ..schema import PRIMARY_KEY, field_names, pandas_dtypes, validate_frame
+from ._util import num, prior_trading_day, session_close_utc, to_int
 
 _log = logging.getLogger(__name__)
 
 _BASE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/options"
 _HTTP_TIMEOUT = 30
 _ET = ZoneInfo("America/New_York")
-_MARKET_CLOSE = (16, 0)
 # OSI: root (letters/digits) + YYMMDD + C|P + 8-digit strike (price * 1000).
 _OSI = re.compile(r"^([A-Z0-9]+?)(\d{6})([CP])(\d{8})$")
-
-
-def _num(value: Any) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _int(value: Any) -> int | None:
-    f = _num(value)
-    return None if f is None else int(f)
 
 
 def _parse_osi(symbol: str) -> tuple[date, float, str, str] | None:
@@ -100,13 +86,6 @@ def _parse_ts(value: str) -> datetime:
     return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
 
 
-def _session_close_utc(session_date: date) -> datetime:
-    """The ET session close (16:00 America/New_York) for session_date, in UTC."""
-    local = datetime(session_date.year, session_date.month, session_date.day,
-                     _MARKET_CLOSE[0], _MARKET_CLOSE[1], tzinfo=_ET)
-    return local.astimezone(timezone.utc)
-
-
 @register_adapter
 class CboeAdapter(ChainAdapter):
     """Canonical-chain adapter for Cboe's free delayed options quotes."""
@@ -121,12 +100,6 @@ class CboeAdapter(ChainAdapter):
     def _url(self, symbol: str) -> str:
         return f"{self.base_url}/{'_' if self.index else ''}{symbol.upper()}.json"
 
-    def _oi_asof(self, quote_date: date):
-        """Assumed OI-as-of session: quote_date - oi_lag_days weekdays (not holiday-aware)."""
-        if self.oi_lag_days <= 0:
-            return quote_date
-        return (pd.Timestamp(quote_date) - pd.tseries.offsets.BusinessDay(self.oi_lag_days)).date()
-
     def fetch_raw(self, symbol: str, quote_date: date | None = None, **kwargs: Any) -> dict[str, Any]:
         """Fetch the current delayed snapshot for ``symbol`` (quote_date is informational)."""
         req = urllib.request.Request(self._url(symbol), headers={"User-Agent": "gamma-research/1.0"})
@@ -136,7 +109,7 @@ class CboeAdapter(ChainAdapter):
     def normalize(self, raw: dict[str, Any], *, symbol: str,
                   quote_date: date | None = None) -> pd.DataFrame:
         data = raw.get("data") or {}
-        spot = _num(data.get("current_price"))
+        spot = num(data.get("current_price"))
         if spot is None or spot <= 0:
             raise ValueError(f"Cboe: missing/invalid current_price for {symbol}")
 
@@ -144,8 +117,10 @@ class CboeAdapter(ChainAdapter):
         # to that session's close so oi_asof and expiry validation use the real
         # trading day, not the UTC date that rolls over in the US evening (B1).
         session_date = _parse_ts(raw.get("timestamp")).astimezone(_ET).date()
-        quote_ts = _session_close_utc(session_date)
-        oi_asof = self._oi_asof(session_date)
+        quote_ts = session_close_utc(session_date)
+        # Exchange OI is a prior-session figure; the shared calendar makes this stamp
+        # holiday-aware, not weekday-only (F1). oi_lag_days=0 -> quote_date unchanged.
+        oi_asof = prior_trading_day(session_date, self.oi_lag_days)
         if quote_date is not None and quote_date != session_date:
             _log.warning("Cboe %s: requested quote_date %s != live snapshot session %s "
                          "(Cboe is snapshot-only)", symbol.upper(), quote_date, session_date)
@@ -170,18 +145,18 @@ class CboeAdapter(ChainAdapter):
                 "strike": strike,
                 "type": opt_type,
                 "underlying_price": spot,
-                "bid": _num(o.get("bid")),
-                "ask": _num(o.get("ask")),
-                "last": _num(o.get("last_trade_price")),
-                "open_interest": _int(o.get("open_interest")),
+                "bid": num(o.get("bid")),
+                "ask": num(o.get("ask")),
+                "last": num(o.get("last_trade_price")),
+                "open_interest": to_int(o.get("open_interest")),
                 "oi_asof_date": oi_asof,
-                "volume": _int(o.get("volume")),
-                "iv": _num(o.get("iv")),
-                "delta": _num(o.get("delta")),
-                "gamma": _num(o.get("gamma")),
-                "theta": _num(o.get("theta")),
-                "vega": _num(o.get("vega")),
-                "rho": _num(o.get("rho")),
+                "volume": to_int(o.get("volume")),
+                "iv": num(o.get("iv")),
+                "delta": num(o.get("delta")),
+                "gamma": num(o.get("gamma")),
+                "theta": num(o.get("theta")),
+                "vega": num(o.get("vega")),
+                "rho": num(o.get("rho")),
                 "_iv_source": self.name,
                 "_greek_source": self.name,
                 "_adapter": self.name,
