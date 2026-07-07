@@ -58,12 +58,31 @@ every weekday, unattended, on the always-on OVH VPS.
   stored chains (cross-section verified 7/2: QQQ/SPY/IWM dealer-short-gamma, single names long).
 - **Reviewed:** MassiveAdapter + deploy hardened across multiple fable passes (PRs #11, #12,
   #13). VPS: Ubuntu 24.04, systemd 255, python3.12, ubuntu-owned `/opt/gamma-research`.
+- **Quant-review fixes shipped (PRs #17/#18/#19, 2026-07-06, docs/quant_review_2026-07.md):**
+  * Ops (A): nightly **backup** of the store + VPS .env to the Mac
+    (`deploy/backup/`, launchd 20:30 local, log `~/Library/Logs/gamma-backup.log`);
+    shared NYSE calendar through 2028 (`src/ingest/market_calendar.py`) making
+    `oi_asof` holiday-aware (F1); cboe/eodhd helper de-dup; store time-series API
+    (`io.iter_partitions` / `read_symbol_history`); adjusted-root flag (equities only).
+  * Flow metrics (B): volume-weighted GEX (`metrics/flow.py`, the 0DTE/EOD-OI patch),
+    normalized GEX (cross-section comparability), vanna/charm dealer exposures
+    (`metrics/vanna_charm.py`; values = dealer BOOK delta change, re-hedge flow is the
+    opposite side), OpEx calendar features (`metrics/expiry.py`), and the alternate
+    `otm_customer` dealer-sign convention + `net_gex_by_convention` sweep helper.
+  * Evaluation (C): the **volatility-forecast harness** (`eval/volatility.py`: HAR
+    baseline, strictly-next-day targets, incremental ADJUSTED-R2 with a moving-block
+    bootstrap - the review's "right first experiment", F4); signal depth
+    (`signals/rules.py`: `flip_distance_series/_signal`, `percentile_gate`,
+    `trend_interaction_signal`); and the F11 `eval/sensitivity.convention_sweep`
+    (flags any conclusion that flips with the dealer-sign assumption).
+  * Validated on real data: null-signal on 476 SPY sessions correctly earns ~0
+    incremental adj-R2 (HAR baseline R2 0.43); first fully automated nightly ran
+    2026-07-06 (4019/5299 captured incl. SPX/NDX/RUT with full OI under the root key).
 - **Next:** a real failure alert (`OnFailure=` mailer/webhook vs today's `.failures.log`
-  marker), and running the metric/proxy suite + a backtest over the accumulating store.
-  (Done: `_spot_source` provenance; full index capture SPX/NDX/RUT/XSP/DJX/OEX with the OCC
-  `root` in the canonical key so AM/PM don't collide; `read_canonical` returns canonical
-  dtypes so the metric engine runs on stored chains; backtest harness validated on price
-  history.)
+  marker); optional VPS-to-Google-Drive off-site backup layer (needs one interactive
+  rclone OAuth); buy Cboe DataShop history (review item 2) and run the vol-forecast
+  scorecard on real GEX signals as the store accumulates; suite is 261 tests, keep BOTH
+  CI legs green (stdlib leg has no data stack - guard heavy imports in tests).
 
 ## What this repo is
 
