@@ -2,8 +2,12 @@
 
 Extracted when the third adapter (Massive) landed - eodhd/cboe/massive all coerce
 messy vendor scalars, anchor `quote_ts` to the ET session close, and stamp
-`oi_asof_date` as a T-1 weekday. Defining these once keeps the OI-timing and
+`oi_asof_date` as a prior trading day. Defining these once keeps the OI-timing and
 session conventions byte-identical across vendors (so they can't drift).
+
+The OI-dating helper is re-exported from `..market_calendar` (`prior_trading_day`),
+so all adapters share the single NYSE calendar the capture guard also uses - the
+stamp is now holiday-aware, not weekday-only (review finding F1).
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ from statistics import NormalDist
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import pandas as pd
+from ..market_calendar import prior_trading_day
 
 _ET = ZoneInfo("America/New_York")
 _MARKET_CLOSE = (16, 0)
@@ -48,12 +52,15 @@ def session_close_utc(session_date: date) -> datetime:
     return local.astimezone(timezone.utc)
 
 
-def prior_weekday(session_date: date, lag: int = 1) -> date:
-    """``session_date`` minus ``lag`` weekdays. Weekend-aware only, NOT holiday-aware
-    (an unverified OI-timing assumption; review finding F1)."""
-    if lag <= 0:
-        return session_date
-    return (pd.Timestamp(session_date) - pd.tseries.offsets.BusinessDay(lag)).date()
+def nonstandard_root(root: Any, symbol: str) -> bool:
+    """True when an OCC ``root`` is not the plain underlying ticker (adjusted/alternate).
+
+    A standard equity option's OCC root equals its underlying ticker. A root like
+    ``AVGO1`` (a post-split adjusted deliverable) or an alternate index root (``SPXW``
+    under ``SPX``) differs - a signal the contract's terms/deliverable are nonstandard,
+    which corporate-actions handling (review item 10) wants flagged. Returns False when
+    ``root`` is None (unknown, nothing to compare)."""
+    return root is not None and root != symbol.upper()
 
 
 _OSI_SUFFIX = re.compile(r"\d{6}[CP]\d{8}")  # YYMMDD + type + strike(8), the fixed OSI tail
@@ -112,5 +119,5 @@ def bs_implied_spot(strike: float | None, iv: float | None, delta: float | None,
     return strike * exp(d1 * iv * sqrt(tau) - (r + 0.5 * iv * iv) * tau)
 
 
-__all__ = ["num", "to_int", "session_close_utc", "prior_weekday",
-           "et_date_from_epoch_ns", "bs_implied_spot", "occ_root"]
+__all__ = ["num", "to_int", "session_close_utc", "prior_trading_day",
+           "nonstandard_root", "et_date_from_epoch_ns", "bs_implied_spot", "occ_root"]

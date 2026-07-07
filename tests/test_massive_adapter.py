@@ -74,6 +74,14 @@ class TestUtilHelpers(unittest.TestCase):
         self.assertIsNone(bs_implied_spot(100, 0.2, 1.0, 0.1, True))     # N(d1) not in (0,1)
         self.assertIsNone(bs_implied_spot(100, 0.2, 0.0, 0.1, False))    # put delta -> N(d1)=1
 
+    def test_nonstandard_root(self):
+        from src.ingest.adapters._util import nonstandard_root
+        self.assertFalse(nonstandard_root("AAPL", "AAPL"))   # standard equity root
+        self.assertFalse(nonstandard_root("AAPL", "aapl"))   # symbol compared case-insensitively
+        self.assertTrue(nonstandard_root("AVGO1", "AVGO"))   # adjusted (post-split) deliverable
+        self.assertTrue(nonstandard_root("SPXW", "SPX"))     # alternate index root
+        self.assertFalse(nonstandard_root(None, "AAPL"))     # unknown root -> not flagged
+
 
 @unittest.skipUnless(_HAVE_STACK, "pandas not installed")
 class TestMassiveNormalize(unittest.TestCase):
@@ -202,6 +210,24 @@ class TestMassiveDerivationGuards(unittest.TestCase):
         at500 = df[df["strike"] == 500.0]
         self.assertEqual(set(at500["root"]), {"SPX", "SPXW"})
         self.assertEqual(sorted(int(x) for x in at500["open_interest"]), [500, 200000])
+
+    def test_nonstandard_root_row_flagged_and_counted(self):
+        # A contract carrying an adjusted OCC root (AVGO1, a post-split deliverable) keeps
+        # that root and is counted as nonstandard in the summary WARNING line (item 10).
+        # It sits at delta 0.95 (outside the spot-recovery band) so it does not perturb
+        # the near-ATM spot cluster, but is still retained as a valid row.
+        lu = 1782964800000000000
+        adjusted = [{"details": {"contract_type": "call", "strike_price": 90.0,
+                                 "expiration_date": "2026-07-17",
+                                 "ticker": "O:AVGO1260717C00090000"},
+                     "greeks": {"delta": 0.95, "gamma": 0.001}, "implied_volatility": 0.30,
+                     "open_interest": 10, "day": {"last_updated": lu}}]
+        with self.assertLogs("src.ingest.adapters.massive", level="WARNING") as cm:
+            df = self._adapter().normalize({"results": self._near_atm() + adjusted}, symbol="AVGO")
+        # The adjusted contract kept its distinct root; the near-ATM cluster is root==symbol.
+        self.assertEqual(int((df["root"] == "AVGO1").sum()), 1)
+        self.assertEqual(int((df["root"] == "AVGO").sum()), len(df) - 1)
+        self.assertTrue(any("1 nonstandard-root" in line for line in cm.output))
 
     def test_exact_duplicate_rows_collapse(self):
         # Byte-identical vendor repeats collapse quietly (not a settlement collision).
