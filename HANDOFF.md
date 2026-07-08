@@ -3,8 +3,9 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-07 (quant-review fix batches A-D live; ThetaData validated as the
-history source; Phase 1 backfill 2016->present RUNNING on the VPS; three backup layers).
+Last updated: 2026-07-08 (FIRST REAL EXPERIMENT run: vol_forecast_scorecard on SPX/SPY
+normalized GEX with the F11 convention sweep - SPX clean null; SPY small negative-coef
+effect that F11 flags as dealer-sign-sensitive. See the experiment bullet below).
 
 ## LIVE: paid data + nightly VPS universe capture (start here)
 
@@ -114,14 +115,48 @@ every weekday, unattended, on the always-on OVH VPS.
   rule: buy only if (a) a GEX signal shows real scorecard value AND (b) the F11
   convention sweep flags sign-convention sensitivity; then start with a 1-2 year SPX
   slice. That history stays purchasable retroactively, so deferral costs nothing.
-- **Next:** when Phase 1 completes, run the FIRST REAL EXPERIMENT:
-  `eval.volatility.vol_forecast_scorecard` on normalized SPX/SPY GEX
-  (`io.read_symbol_history` + `metrics.flow.gex_normalized` + bars from
-  `backtest.bars.fetch_daily_bars`), with the F11 `eval.sensitivity.convention_sweep`;
-  then the empirical dealer-sign calibration and the cross-sectional universe backfill
-  (phase 2). Also still open: a real failure alert (`OnFailure=` mailer/webhook vs the
-  `.failures.log` marker). Suite is 288 tests; keep BOTH CI legs green (the stdlib leg
-  has no data stack - guard heavy imports in tests).
+- **FIRST REAL EXPERIMENT DONE (2026-07-08): `scripts/vol_forecast_experiment.py`** -
+  `vol_forecast_scorecard` on normalized SPX/SPY GEX, both dealer-sign conventions
+  (the F11 sweep adapted to the vol harness: the signal is rebuilt per convention from
+  the series' own `net_gex` / `net_gex_otm` columns; `otm_customer` is a per-contract
+  re-signing, not a global flip). Inputs: the VPS `gex_series_*.json` pulled to
+  `data/analysis/` (gitignored), bars from **yfinance** (`data/analysis/yf_*_daily.csv`).
+  Why yfinance: Massive bars are 2-year-capped on Options Starter and `I:SPX` aggs are
+  403; ThetaData index/stock history needs subscriptions we don't have (PERMISSION_DENIED
+  verified); EODHD free = 1y; Stooq is behind an anti-bot wall. Validated before use:
+  SPY yf vs Massive overlap agrees to ~1e-5 on all OHLC, SPX yf close vs the official
+  Cboe history CSV (2 of 2,663 sessions > 5bp), both vs the series' ThetaData
+  vendor-close spots (median |rel| ~2e-8). Results (~2,388 sessions 2017-01..2026-07;
+  HAR baseline R2 ~0.55 range / ~0.27 abs_return; strict gate = incremental adj-R2 > 0
+  AND bootstrap frac<=0 no more than 0.05; full JSON in
+  `data/analysis/vol_forecast_results_{SPX,SPY}.json`, also easy to re-run):
+  * **SPX: clean null.** Every target, both conventions: inc_adjR2 ~ -0.0002, |t| <= 0.5,
+    boot frac<=0 ~ 0.85. No F11 flip. A trustworthy negative, and not a degenerate
+    signal (SPX gex_norm is two-sided, 1540 pos / 848 neg sessions).
+  * **SPY: small real effect, but convention-sensitive.** Under `long_call_short_put`
+    the coefficient is NEGATIVE on all targets (long gamma suppresses next-day vol, the
+    theorized sign): abs_return passes hard (t=-4.4, frac 0.000, inc_adjR2 +0.0057),
+    range passes (t=-2.5, frac 0.043), parkinson just misses (frac 0.058). Robustness:
+    strongest PRE-COVID (2017-19: abs_return t=-5.5, inc_adjR2 +0.031), holds through
+    2020 (t=-2.4), decays 2022-26 (range t=-1.2 n.s.; abs_return still t=-2.8) -
+    consistent with the item-7 0DTE/EOD-OI blind spot, NOT a COVID artifact. Value
+    concentrates on POSITIVE-GEX days (subsample inc_adjR2 +0.009 vs ~0.000 negative).
+    BUT under `otm_customer` every target fails (t ~ -1.9, frac 0.10-0.14), so **F11
+    FLIPS on range and abs_return**: per review item 5 the SPY positive currently rides
+    on the unobservable dealer-sign assumption - motivation, not yet a result.
+  * Magnitudes are honest-small everywhere: even the best whole-sample cell adds ~0.6%
+    R2 to a 27% baseline. Statistically detectable, economically modest.
+- **Next:** (1) the **empirical dealer-sign calibration** is now the gating step - the
+  SPY result is exactly the F11-flagged situation it was designed for; note the Cboe
+  Open-Close purchase rule's two conditions (real scorecard value + F11 sensitivity)
+  are both arguably met on the vol channel, though the quote was for SPX and the signal
+  is on SPY - check equity open-close pricing before deciding. (2) `gex_volume_proxy`
+  series (needs per-session chains, `io.read_symbol_history` on the store) as the
+  candidate fix for the post-2021 decay. (3) Explain the SPX null vs SPY effect
+  (institutional SPX book structure? notional denominator? greeks era?). (4) Phase 2
+  cross-sectional universe backfill. Also still open: a real failure alert
+  (`OnFailure=` mailer/webhook vs the `.failures.log` marker). Suite is 288 tests; keep
+  BOTH CI legs green (the stdlib leg has no data stack - guard heavy imports in tests).
 
 ## What this repo is
 
