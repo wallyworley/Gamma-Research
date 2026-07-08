@@ -93,11 +93,18 @@ every weekday, unattended, on the always-on OVH VPS.
   per-symbol (SPX greeks begin 2017-01; equities reach 2016); OI-only sessions raise
   `NoDataForSession` = clean skip, so a wide-range backfill self-selects each symbol's
   usable era. `scripts/backfill_thetadata.py` is resumable (skips existing partitions)
-  with per-day failure isolation. **Phase 1 launched 2026-07-07** (transient unit
-  `gamma-backfill-p1` on the VPS): SPX NDX RUT XSP DJX OEX SPY QQQ IWM HYG TLT AAPL NVDA
-  TSLA MSFT AMZN META, 2016 -> 2026-07-01; first write verified (SPX 2017-01-03, 8,810
-  contracts, spot 2257.83). Monitor: `journalctl -u gamma-backfill-p1`;
-  done = unit inactive + `data/.backfill_status.json`.
+  with per-day failure isolation. **Phase 1 COMPLETE 2026-07-08** (21.6h, transient unit
+  `gamma-backfill-p1`): SPX NDX RUT XSP DJX OEX SPY QQQ IWM HYG TLT AAPL NVDA TSLA MSFT
+  AMZN META, 2016 -> 2026-07-01. Tally: **37,960 partitions written, 8.5GB**, 8,313 clean
+  pre-floor skips, 2 failures both resolved: RUT 2026-02-10 repaired after the
+  negative-price-print fix (vendor close of -2.67 now nulled like bad IV); XSP 2023-12-21
+  intentionally missing (vendor sent the chain duplicated against two underlying prints,
+  B2 guard correctly refused; 1 of 2,385 sessions, noise). Coverage notes: NDX greeks
+  exist only from 2026-05 at this vendor (QQQ carries the Nasdaq history); META root
+  begins ~2021-11 (FB-era history under the old root, unfetched). **GEX time series
+  precomputed** to `/opt/gamma-research/analysis/gex_series_<SYM>.json` (SPX SPY QQQ IWM
+  XSP RUT; per-session spot, net_gex under BOTH sign conventions, gex_norm,
+  option_notional) by unit `gamma-gex-series` - ready inputs for the first experiment.
 - **Backups (three layers; deploy/backup/README.md):** VPS primary; Mac pull 20:30 local
   (launchd, + VPS `.env`); Google Drive push 23:45 UTC (VPS systemd, per-session tarballs,
   manifest-driven so grown sessions re-upload; `gdrive:` rclone remote, 5 TiB Drive).
