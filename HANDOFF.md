@@ -3,9 +3,11 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-08 (FIRST REAL EXPERIMENT run: vol_forecast_scorecard on SPX/SPY
-normalized GEX with the F11 convention sweep - SPX clean null; SPY small negative-coef
-effect that F11 flags as dealer-sign-sensitive. See the experiment bullet below).
+Last updated: 2026-07-08 (EMPIRICAL DEALER-SIGN CALIBRATION run on branch
+`calibration-dealer-sign`: 130.5M SPY option trades quote-rule-classified over 245
+sampled sessions -> 21/30-stable bucket sign map -> three-arm scorecard. The naive
+convention matches the measured map on only ~51% of gamma-weighted OI, and the SPY
+vol result does NOT survive under measured signs. See the calibration bullet below).
 
 ## LIVE: paid data + nightly VPS universe capture (start here)
 
@@ -146,17 +148,58 @@ every weekday, unattended, on the always-on OVH VPS.
     on the unobservable dealer-sign assumption - motivation, not yet a result.
   * Magnitudes are honest-small everywhere: even the best whole-sample cell adds ~0.6%
     R2 to a 27% baseline. Statistically detectable, economically modest.
-- **Next:** (1) the **empirical dealer-sign calibration** is now the gating step - the
-  SPY result is exactly the F11-flagged situation it was designed for; note the Cboe
-  Open-Close purchase rule's two conditions (real scorecard value + F11 sensitivity)
-  are both arguably met on the vol channel, though the quote was for SPX and the signal
-  is on SPY - check equity open-close pricing before deciding. (2) `gex_volume_proxy`
+- **EMPIRICAL DEALER-SIGN CALIBRATION DONE (2026-07-08, branch `calibration-dealer-sign`):**
+  `src/calibration/` (classify/bucket/signmap pure + stdlib-tested; pull/aggregate/
+  gex_rebuild data-stack) + `scripts/calibrate_dealer_sign.py` (pull -> map -> scorecard,
+  resumable). Replaces the assumed dealer sign with a measurement: ThetaData
+  `option_history_trade_quote` (Standard IS entitled; `expiration='*'` + `max_dte=60`
+  returns a whole session in one call) -> quote rule vs prevailing NBBO (>=ask buy,
+  <=bid sell, inside by proximity; exact-mid + invalid NBBO dropped) -> signed customer
+  flow per type x moneyness(5, +/-15%) x DTE(3, <=60d) bucket -> dealer sign = MINUS
+  mean-flow sign, stable only if the 2017-21 and 2022-26 halves agree. Sampled 245 SPY
+  sessions (2/month 2017-01..2026-06 + top-20 |gex_norm|), 130.5M trades, 99.4% valid
+  NBBO, 46.4% buy / 45.2% sell / 7.8% exact-mid dropped. Outputs (gitignored):
+  `data/calibration/{sign_map,empirical_series,scorecard}_SPY.json` + per-session
+  trade parquets (~460MB). Findings:
+  * **Map: 21/30 buckets stable.** Headline structure: ATM (0.99-1.01) calls AND puts
+    at 8-60d DTE = dealers SHORT (customers net buy both, put t=+4.6) - the naive
+    convention has ATM calls backwards; short-dated OTM puts (<=0.95, 0-7d) = dealer
+    short (t=+3.5); longer-dated OTM puts = dealer long (customers net SELL puts at
+    8-60d, t=-3.0 at 31-60d - the put-wing "customers buy protection" story only holds
+    0-7d). ATM 0DTE calls flipped sign between halves (unstable) - 0DTE era change.
+  * **Neither convention matches the measurement:** gamma*OI-weighted agreement over
+    stable cells = **50.9% long_call_short_put, 33.4% otm_customer** (a coin flip and
+    worse-than-coin-flip). Empirical rebuild fallback share (unstable buckets + DTE>60):
+    mean 38.6% of gamma*OI.
+  * **Diagnostics:** OI reconciliation r=+0.19 (20,040 contract-days, 12 sessions;
+    positive but weak, as expected: open/close unobservable, OCC vs per-exchange
+    coverage). Condition robustness: 15/21 stable buckets keep their sign when
+    multi-leg/spread/floor prints (OPRA 35-38, 129, 130-139) are excluded; the 6 that
+    move are mostly the longer-dated OTM-put cells, i.e. the "customers sell put wings"
+    reading leans on multi-leg prints whose leg-level NBBO classification is weakest.
+    Gamma-weighted flow map agrees with the contract map on 18/21.
+  * **Three-arm scorecard (same bars/gate as the experiment): the SPY vol result does
+    NOT survive.** Whole-sample: empirical arm keeps only abs_return (inc_adjR2
+    +0.0013, t=-2.31, boot frac 0.017 - a quarter of the naive arm's +0.0057/t=-4.44)
+    and fails range (t=-0.49) and parkinson (t=-0.38), both of which the naive arm
+    passed/near-passed. Out-of-sample splits: early-half map scored on 2022-26 bars
+    FAILS all targets (abs_return t=-1.30, boot 0.47; range coef even flips positive),
+    late map on 2017-21 bars FAILS all targets (t ~ -1.5..-1.7, boot 0.15-0.19).
+    Conclusion: the naive-convention SPY positive rode substantially on sign choices
+    the measured customer flow does not support; honest status = weak/absent under
+    measured signs. Caveats: quote-rule error (esp. multi-leg legs), bucket-level (not
+    contract-level) inventory proxy, 245-session sampling density, single name.
+- **Next:** (1) the Cboe Open-Close purchase decision: the F11 flag + the calibration's
+  ~51% agreement argue the flow-sign question is real, but the empirical arm's failure
+  also says the vol channel may just be weak - if pursued, buy the SPY (equity)
+  open-close slice, not SPX, and re-test before spending more. (2) `gex_volume_proxy`
   series (needs per-session chains, `io.read_symbol_history` on the store) as the
   candidate fix for the post-2021 decay. (3) Explain the SPX null vs SPY effect
   (institutional SPX book structure? notional denominator? greeks era?). (4) Phase 2
   cross-sectional universe backfill. Also still open: a real failure alert
-  (`OnFailure=` mailer/webhook vs the `.failures.log` marker). Suite is 288 tests; keep
-  BOTH CI legs green (the stdlib leg has no data stack - guard heavy imports in tests).
+  (`OnFailure=` mailer/webhook vs the `.failures.log` marker). Suite is 321 tests; keep
+  BOTH CI legs green (the stdlib leg has no data stack - guard heavy imports in tests;
+  the calibration pure logic imports stdlib-only by design).
 
 ## What this repo is
 
