@@ -103,6 +103,21 @@ def _coerce_session(value: "date | str") -> date:
     raise TypeError(f"cannot interpret {value!r} as a session date")
 
 
+def _nonneg(value: Any, counters: dict) -> "float | None":
+    """A price field (bid/ask/last) coerced to float, with NEGATIVE prints nulled.
+
+    The vendor occasionally emits a negative option close (observed live: RUT
+    2026-02-10, close=-2.67), which is meaningless for a price and would fail the
+    canonical schema's non-negativity rule, killing the whole session for one bad
+    cell. Same philosophy as the iv_error hygiene: a null is honest, a bad print
+    that looks like data is not. Counted in ``neg_price_nulled``."""
+    x = num(value)
+    if x is not None and x < 0:
+        counters["neg_price_nulled"] = counters.get("neg_price_nulled", 0) + 1
+        return None
+    return x
+
+
 def _to_pandas(frame: Any) -> "pd.DataFrame":
     """Return a pandas DataFrame from a client result (polars or already pandas)."""
     to_p = getattr(frame, "to_pandas", None)
@@ -273,8 +288,8 @@ class ThetadataAdapter(ChainAdapter):
             "symbol": sym, "root": root, "quote_ts": quote_ts,
             "expiration": exp, "strike": strike, "type": ctype,
             "underlying_price": spot,
-            "bid": num(g.get("bid")), "ask": num(g.get("ask")),
-            "last": num(g.get("close")),
+            "bid": _nonneg(g.get("bid"), counters), "ask": _nonneg(g.get("ask"), counters),
+            "last": _nonneg(g.get("close"), counters),
             "open_interest": to_int(o.get("open_interest")) if o else None,
             "oi_asof_date": oi_asof, "volume": to_int(g.get("volume")),
             "iv": iv,

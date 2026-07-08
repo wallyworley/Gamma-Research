@@ -173,6 +173,19 @@ class TestThetadataGuards(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._adapter().normalize(raw, symbol="AAPL")
 
+    def test_negative_price_print_is_nulled_not_fatal(self):
+        # Vendor bad print (observed live: RUT 2026-02-10 close=-2.67): negative
+        # bid/ask/last are nulled (like the iv_error hygiene) so one bad cell
+        # cannot fail schema validation and kill the whole session.
+        raw = self._raw([self._greeks(100, "CALL", close=-2.67, bid=-0.5)],
+                        [self._oi(100, "CALL")])
+        df = self._adapter().normalize(raw, symbol="RUT")
+        import pandas as pd
+        row = df.iloc[0]
+        self.assertTrue(pd.isna(row["last"]))
+        self.assertTrue(pd.isna(row["bid"]))
+        self.assertEqual(float(row["ask"]), 5.1)   # untouched positive field
+
     def test_oi_only_session_is_clean_skip(self):
         # A session with OI but ZERO greeks rows (before the vendor's per-symbol greeks
         # floor, e.g. SPX pre-2017) has no spot and no gamma: it must raise
