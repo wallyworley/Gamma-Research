@@ -3,11 +3,14 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-08 (EMPIRICAL DEALER-SIGN CALIBRATION run on branch
-`calibration-dealer-sign`: 130.5M SPY option trades quote-rule-classified over 245
-sampled sessions -> 21/30-stable bucket sign map -> three-arm scorecard. The naive
-convention matches the measured map on only ~51% of gamma-weighted OI, and the SPY
-vol result does NOT survive under measured signs. See the calibration bullet below).
+Last updated: 2026-07-19. The corrected-gamma, strong-control, expanding
+walk-forward EXP-2026-001 development scorecard is complete. SPY empirical GEX
+slightly worsened OOS squared error (-0.0045%), bootstrap p=0.5385, negative sign
+in 62.5% of annual folds, placebo percentile 79%; it passed 0/4 locked gates.
+SPX naive-sign sensitivity also passed 0/4. **Day-30 decision: stop EOD OI-GEX
+level as standalone alpha.** The prospective holdout was not scored and is sealed
+until at least 126 sessions and 2027-01-15. See
+`docs/day30_research_decision_2026-07-19.md`.
 
 ## LIVE: paid data + nightly VPS universe capture (start here)
 

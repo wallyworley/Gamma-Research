@@ -1,0 +1,237 @@
+{
+  "experiment_id": "EXP-2026-001",
+  "generated_on": "2026-07-13",
+  "manifest": "experiments/registry/EXP-2026-001.json",
+  "manifest_hash": "83a4b36ed5d1abd7272197072b822dfce636b69937cfa8608db221b6d96ba683",
+  "outcome_fields_examined": [],
+  "symbols": [
+    {
+      "bar_sessions": 2663,
+      "eligibility": {
+        "historical_development_eligible": true,
+        "historical_end": "2026-07-07",
+        "minimum_history": 252,
+        "note": "Historical outcomes were already inspected; only dates on/after the prospective start can be untouched.",
+        "prospective_holdout_start": "2026-07-13",
+        "prospective_sessions_currently_available": 0,
+        "untouched_holdout": true
+      },
+      "inputs": {
+        "bars": "data/analysis/yf_spy_daily.csv",
+        "bars_sha256": "f79819542beba312e13bb619668403d7b439732b522fab2820b714fc6b95d664",
+        "series": "data/analysis/gex_series_SPY.json",
+        "series_sha256": "c632bcaefd475d66744be8367901fb4c0da3cd9f1d13369d91f1620bdeccd3e2"
+      },
+      "invalid_ohlc_dates": [],
+      "invalid_series_dates": [],
+      "missing_series_sessions_within_bar_span": [],
+      "null_counts": {
+        "n_contracts": 0,
+        "net_gex": 0,
+        "net_gex_otm": 0,
+        "option_notional": 0,
+        "spot": 0
+      },
+      "outliers": {
+        "gex_norm_mad10": [
+          {
+            "date": "2019-06-28",
+            "robust_z": -12.881406528614498,
+            "value": -0.11895453797702206
+          },
+          {
+            "date": "2019-11-08",
+            "robust_z": 11.780588134016442,
+            "value": 0.11009369989258547
+          },
+          {
+            "date": "2024-02-06",
+            "robust_z": 11.089450827498004,
+            "value": 0.10367476321087962
+          },
+          {
+            "date": "2024-02-12",
+            "robust_z": 13.204732201242901,
+            "value": 0.12332043574801678
+          },
+          {
+            "date": "2026-06-26",
+            "robust_z": -91.52680695132956,
+            "value": -0.849373574628086
+          }
+        ],
+        "n_contracts_mad10": [],
+        "option_notional_mad10": []
+      },
+      "overlap_sessions": 2389,
+      "overlap_span": [
+        "2017-01-03",
+        "2026-07-07"
+      ],
+      "series_sessions": 2389,
+      "spot_sources": {
+        "<NA>": 1,
+        "implied_delta_t0": 2,
+        "vendor_close": 2386
+      },
+      "symbol": "SPY"
+    },
+    {
+      "bar_sessions": 2663,
+      "eligibility": {
+        "historical_development_eligible": true,
+        "historical_end": "2026-07-07",
+        "minimum_history": 252,
+        "note": "Historical outcomes were already inspected; only dates on/after the prospective start can be untouched.",
+        "prospective_holdout_start": "2026-07-13",
+        "prospective_sessions_currently_available": 0,
+        "untouched_holdout": true
+      },
+      "inputs": {
+        "bars": "data/analysis/yf_spx_daily.csv",
+        "bars_sha256": "06e1ff3a15a7841d66eeb4d8e9e99fc055eded11f30577f69f0ea5b2b6fbb3ca",
+        "series": "data/analysis/gex_series_SPX.json",
+        "series_sha256": "527ab2c8fb0cab624d05e23a003eee6628e3ec6d97fb472801862e3f7b8051ef"
+      },
+      "invalid_ohlc_dates": [],
+      "invalid_series_dates": [],
+      "missing_series_sessions_within_bar_span": [
+        "2026-07-02"
+      ],
+      "null_counts": {
+        "n_contracts": 0,
+        "net_gex": 0,
+        "net_gex_otm": 0,
+        "option_notional": 0,
+        "spot": 0
+      },
+      "outliers": {
+        "gex_norm_mad10": [
+          {
+            "date": "2020-10-30",
+            "robust_z": -94.25716311729894,
+            "value": -0.5819500751718522
+          },
+          {
+            "date": "2020-11-06",
+            "robust_z": 67.80824186964027,
+            "value": 0.42203975344377864
+          },
+          {
+            "date": "2020-12-21",
+            "robust_z": -27.217673236354194,
+            "value": -0.16664265060784184
+          },
+          {
+            "date": "2021-01-08",
+            "robust_z": 10.397001356488184,
+            "value": 0.06637901555801257
+          },
+          {
+            "date": "2021-01-11",
+            "robust_z": 74.16635688184806,
+            "value": 0.4614280658472766
+          },
+          {
+            "date": "2021-01-13",
+            "robust_z": 65.87833510373083,
+            "value": 0.4100840448006805
+          },
+          {
+            "date": "2021-01-19",
+            "robust_z": 296.7919207605601,
+            "value": 1.8405860776515797
+          },
+          {
+            "date": "2021-01-26",
+            "robust_z": 15.331709005504619,
+            "value": 0.09694936638151821
+          },
+          {
+            "date": "2021-02-10",
+            "robust_z": 15.064636034820408,
+            "value": 0.095294858153271
+          },
+          {
+            "date": "2021-04-01",
+            "robust_z": 15.672794539906617,
+            "value": 0.09906237999633088
+          },
+          {
+            "date": "2021-04-07",
+            "robust_z": 321.8933171992,
+            "value": 1.9960883991400804
+          },
+          {
+            "date": "2021-04-14",
+            "robust_z": 12.55016274972971,
+            "value": 0.07971777924022203
+          },
+          {
+            "date": "2021-04-20",
+            "robust_z": -79.503363164154,
+            "value": -0.49055077198570307
+          },
+          {
+            "date": "2021-04-22",
+            "robust_z": 11.44128927037729,
+            "value": 0.07284834467717524
+          },
+          {
+            "date": "2021-07-01",
+            "robust_z": 13.250480679979978,
+            "value": 0.08405622567686336
+          },
+          {
+            "date": "2021-08-26",
+            "robust_z": -51.09603508185977,
+            "value": -0.3145683132057491
+          },
+          {
+            "date": "2021-09-01",
+            "robust_z": 12.04784800183178,
+            "value": 0.07660595597544945
+          },
+          {
+            "date": "2021-10-07",
+            "robust_z": -36.25474938570498,
+            "value": -0.22262703873252707
+          },
+          {
+            "date": "2021-10-21",
+            "robust_z": 304.12977970500884,
+            "value": 1.886043871340717
+          },
+          {
+            "date": "2021-10-26",
+            "robust_z": 15.511548102568693,
+            "value": 0.09806346364523899
+          },
+          {
+            "date": "2021-12-15",
+            "robust_z": 20.199391544530183,
+            "value": 0.1271044988634037
+          },
+          {
+            "date": "2024-07-03",
+            "robust_z": 117.14590782184969,
+            "value": 0.7276849637071656
+          }
+        ],
+        "n_contracts_mad10": [],
+        "option_notional_mad10": []
+      },
+      "overlap_sessions": 2388,
+      "overlap_span": [
+        "2017-01-03",
+        "2026-07-07"
+      ],
+      "series_sessions": 2388,
+      "spot_sources": {
+        "implied_delta_t0": 2,
+        "vendor_close": 2386
+      },
+      "symbol": "SPX"
+    }
+  ]
+}

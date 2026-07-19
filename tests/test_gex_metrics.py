@@ -110,6 +110,16 @@ class TestNetGex(unittest.TestCase):
         with self.assertRaises(ValueError):
             net_gex(self.df, config=cfg)
 
+    def test_recomputed_gamma_excludes_invalid_iv_vendor_gamma(self):
+        from src.metrics import contract_gex_recomputed
+        df = self.df.copy()
+        df.loc[df.index[0], "gamma"] = 999.0
+        df.loc[df.index[0], "iv"] = pd.NA
+        df.loc[df.index[1:], "iv"] = 0.2
+        recomputed = contract_gex_recomputed(df)
+        self.assertEqual(float(recomputed.iloc[0]), 0.0)
+        self.assertTrue(np.isfinite(recomputed.iloc[1:]).all())
+
 
 @unittest.skipUnless(_HAVE_STACK, "numpy/pandas not installed")
 class TestBlackScholesGamma(unittest.TestCase):

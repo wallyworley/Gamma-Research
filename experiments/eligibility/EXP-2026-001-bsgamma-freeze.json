@@ -1,0 +1,93 @@
+{
+  "experiment_id": "EXP-2026-001",
+  "generated_on": "2026-07-13",
+  "manifest": "experiments/registry/EXP-2026-001.json",
+  "manifest_hash": "83a4b36ed5d1abd7272197072b822dfce636b69937cfa8608db221b6d96ba683",
+  "outcome_fields_examined": [],
+  "symbols": [
+    {
+      "bar_sessions": 2663,
+      "eligibility": {
+        "historical_development_eligible": true,
+        "historical_end": "2026-07-07",
+        "minimum_history": 252,
+        "note": "Historical outcomes were already inspected; only dates on/after the prospective start can be untouched.",
+        "prospective_holdout_start": "2026-07-13",
+        "prospective_sessions_currently_available": 0,
+        "untouched_holdout": true
+      },
+      "inputs": {
+        "bars": "data/analysis/yf_spy_daily.csv",
+        "bars_sha256": "f79819542beba312e13bb619668403d7b439732b522fab2820b714fc6b95d664",
+        "series": "data/analysis/gex_series_bsgamma_SPY.json",
+        "series_sha256": "cb8bafc7b0dbec996d1155d2ef1b8dc604a2f1e1bee1861e0fad4c9762c7c899"
+      },
+      "invalid_ohlc_dates": [],
+      "invalid_series_dates": [],
+      "missing_series_sessions_within_bar_span": [],
+      "null_counts": {
+        "n_contracts": 0,
+        "net_gex": 0,
+        "net_gex_otm": 0,
+        "option_notional": 0,
+        "spot": 0
+      },
+      "outliers": {
+        "gex_norm_mad10": [],
+        "n_contracts_mad10": [],
+        "option_notional_mad10": []
+      },
+      "overlap_sessions": 2389,
+      "overlap_span": [
+        "2017-01-03",
+        "2026-07-07"
+      ],
+      "series_sessions": 2392,
+      "spot_sources": {},
+      "symbol": "SPY"
+    },
+    {
+      "bar_sessions": 2663,
+      "eligibility": {
+        "historical_development_eligible": true,
+        "historical_end": "2026-07-07",
+        "minimum_history": 252,
+        "note": "Historical outcomes were already inspected; only dates on/after the prospective start can be untouched.",
+        "prospective_holdout_start": "2026-07-13",
+        "prospective_sessions_currently_available": 0,
+        "untouched_holdout": true
+      },
+      "inputs": {
+        "bars": "data/analysis/yf_spx_daily.csv",
+        "bars_sha256": "06e1ff3a15a7841d66eeb4d8e9e99fc055eded11f30577f69f0ea5b2b6fbb3ca",
+        "series": "data/analysis/gex_series_bsgamma_SPX.json",
+        "series_sha256": "7a08b37797c424f2b7791dc5f9c23868c3d9eadf92ab11243d8287028b675a99"
+      },
+      "invalid_ohlc_dates": [],
+      "invalid_series_dates": [],
+      "missing_series_sessions_within_bar_span": [
+        "2026-07-02"
+      ],
+      "null_counts": {
+        "n_contracts": 0,
+        "net_gex": 0,
+        "net_gex_otm": 0,
+        "option_notional": 0,
+        "spot": 0
+      },
+      "outliers": {
+        "gex_norm_mad10": [],
+        "n_contracts_mad10": [],
+        "option_notional_mad10": []
+      },
+      "overlap_sessions": 2388,
+      "overlap_span": [
+        "2017-01-03",
+        "2026-07-07"
+      ],
+      "series_sessions": 2391,
+      "spot_sources": {},
+      "symbol": "SPX"
+    }
+  ]
+}

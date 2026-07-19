@@ -1,0 +1,63 @@
+{
+  "artifact": {
+    "full_result_path": "/opt/gamma-research/analysis/EXP-2026-001-development-scorecard.json",
+    "full_result_sha256": "c5b758e59e2d55d16de59c2728429d630e507d9c8eb442ed3f3782f09defd3a3"
+  },
+  "day_30_decision": "STOP_EOD_OI_GEX_LEVEL_AS_STANDALONE_ALPHA",
+  "experiment_id": "EXP-2026-001",
+  "generated_at": "2026-07-19T21:20:50.692771+00:00",
+  "holdout_policy_id": "EXP-2026-001-HOLDOUT",
+  "holdout_scored": false,
+  "manifest_hash": "83a4b36ed5d1abd7272197072b822dfce636b69937cfa8608db221b6d96ba683",
+  "mode": "development_only",
+  "results": [
+    {
+      "annual_fold_sign_consistency": 0.625,
+      "block_bootstrap_one_sided_p": 0.5385,
+      "complete_rows": 2364,
+      "gate_results": {
+        "annual_fold_sign_consistency": false,
+        "block_bootstrap_one_sided_p": false,
+        "minimum_oos_squared_error_improvement": false,
+        "placebo_percentile": false
+      },
+      "holdout_outcomes_loaded": 0,
+      "inference_role": "primary",
+      "input_hashes": {
+        "chain_features": "2facb793cf22933fac7a53a243d9c9a71c9c6f05f5970efcee1f291bd8e5c9f1",
+        "development_bars": "f79819542beba312e13bb619668403d7b439732b522fab2820b714fc6b95d664"
+      },
+      "oos_predictions": 1884,
+      "oos_span": ["2019-01-02", "2026-07-01"],
+      "oos_squared_error_improvement": -0.00004489363639970101,
+      "passes_all_registered_gates": false,
+      "placebo_percentile": 0.79,
+      "signal": "gex_norm_bs_empirical",
+      "symbol": "SPY"
+    },
+    {
+      "annual_fold_sign_consistency": 0.125,
+      "block_bootstrap_one_sided_p": 0.997,
+      "complete_rows": 2093,
+      "gate_results": {
+        "annual_fold_sign_consistency": false,
+        "block_bootstrap_one_sided_p": false,
+        "minimum_oos_squared_error_improvement": false,
+        "placebo_percentile": false
+      },
+      "holdout_outcomes_loaded": 0,
+      "inference_role": "naive-sign replication sensitivity",
+      "input_hashes": {
+        "chain_features": "492e72e0a0ad3392ae4bbbf38bd727c49b12dae238596fd7a03d161633164572",
+        "development_bars": "06e1ff3a15a7841d66eeb4d8e9e99fc055eded11f30577f69f0ea5b2b6fbb3ca"
+      },
+      "oos_predictions": 1613,
+      "oos_span": ["2019-01-02", "2026-07-01"],
+      "oos_squared_error_improvement": -0.0033131560543000482,
+      "passes_all_registered_gates": false,
+      "placebo_percentile": 0.14,
+      "signal": "gex_norm_bs_naive",
+      "symbol": "SPX"
+    }
+  ]
+}

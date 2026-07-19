@@ -25,6 +25,7 @@ from .flow import (
 from .gex import (
     GexSnapshot,
     contract_gex,
+    contract_gex_recomputed,
     gamma_snapshot,
     gex_by_strike,
     net_gex,
@@ -53,6 +54,7 @@ __all__ = [
     "bs_gamma",
     "greek_coverage",
     "contract_gex",
+    "contract_gex_recomputed",
     "net_gex",
     "gex_by_strike",
     "regime",
