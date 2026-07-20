@@ -3,7 +3,7 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-19. The corrected-gamma, strong-control, expanding
+Last updated: 2026-07-20. **The project is retired.** The corrected-gamma, strong-control, expanding
 walk-forward EXP-2026-001 development scorecard is complete. SPY empirical GEX
 slightly worsened OOS squared error (-0.0045%), bootstrap p=0.5385, negative sign
 in 62.5% of annual folds, placebo percentile 79%; it passed 0/4 locked gates.
@@ -12,10 +12,26 @@ level as standalone alpha.** The prospective holdout was not scored and is seale
 until at least 126 sessions and 2027-01-15. See
 `docs/day30_research_decision_2026-07-19.md`.
 
-## LIVE: paid data + nightly VPS universe capture (start here)
+## RETIRED: operational state (start here)
 
-The engine now collects real option chains for the **full optionable US equity universe**
-every weekday, unattended, on the always-on OVH VPS.
+- `gamma-snapshot.timer` and `gamma-drive-backup.timer` are disabled on the VPS.
+- `/opt/gamma-research/data` was removed on 2026-07-20 only after a complete Google Drive
+  snapshot matched the local archive by exact byte size and MD5.
+- The repository, VPS credentials, systemd definitions, retirement metadata, and off-site
+  archives remain. The former corpus is not locally queryable on the VPS without a restore.
+- Pushes to `main` no longer deploy automatically. The retained workflow requires an explicit
+  manual `reactivate=true` confirmation before it can touch the VPS.
+- Do not restart collection, score the sealed holdout, purchase more options data, or revive
+  EXP-2026-001 through threshold/subperiod changes. Re-entry requires a distinct preregistration
+  and explicit approval.
+
+See `docs/project_retirement_2026-07-20.md` for the verified snapshot and recovery boundary.
+
+## HISTORICAL: paid data + nightly VPS universe capture
+
+The engine previously collected real option chains for the **full optionable US equity universe**
+every weekday, unattended, on the OVH VPS. The details below are retained as historical
+architecture documentation and do not describe an active collector.
 
 - **Provider:** Massive (rebranded Polygon.io; API host still `api.polygon.io`), **Options
   Starter ~$29/mo**. Key in `.env` (`MASSIVE_API_KEY`; also on the VPS at
@@ -192,7 +208,7 @@ every weekday, unattended, on the always-on OVH VPS.
     the measured customer flow does not support; honest status = weak/absent under
     measured signs. Caveats: quote-rule error (esp. multi-leg legs), bucket-level (not
     contract-level) inventory proxy, 245-session sampling density, single name.
-- **Next:** (1) the Cboe Open-Close purchase decision: the F11 flag + the calibration's
+- **Historical next-step list (superseded by retirement):** (1) the Cboe Open-Close purchase decision: the F11 flag + the calibration's
   ~51% agreement argue the flow-sign question is real, but the empirical arm's failure
   also says the vol channel may just be weak - if pursued, buy the SPY (equity)
   open-close slice, not SPX, and re-test before spending more. (2) `gex_volume_proxy`
