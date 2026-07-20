@@ -1,0 +1,42 @@
+{
+  "controls": {
+    "access": "Development scoring must reject any bar file containing a session on or after the holdout start.",
+    "release": "A separately committed release artifact is required before the only terminal holdout evaluation."
+  },
+  "exclusions": {
+    "early_access": "Forbidden",
+    "interim_targets": "No holdout outcomes, scores, residuals, or directional summaries may be inspected before release."
+  },
+  "experiment_id": "EXP-2026-001-HOLDOUT",
+  "hypothesis": {
+    "statement": "This supplement governs access only and adds no alpha hypothesis."
+  },
+  "manifest_hash": "f1bf7d0f3c17ecfe4c0b547ebb0aedd0fa1a8a3cf4fe84efd6f2000623d9c043",
+  "parent_experiment": "EXP-2026-001",
+  "pass_fail": {
+    "release_gate": "Both the minimum session count and earliest evaluation date must be satisfied; only one terminal look is permitted."
+  },
+  "placebos": {
+    "none": "Placebos are defined by the parent experiment and run on development data."
+  },
+  "question": "When may the prospective EXP-2026-001 holdout be opened?",
+  "registered_at": "2026-07-19T00:00:00-04:00",
+  "signal": {
+    "construction": "No holdout signal panel may be joined to outcomes before release."
+  },
+  "status": "locked",
+  "target": {
+    "construction": "Not constructed for holdout sessions before release."
+  },
+  "universe": {
+    "primary": ["SPY"],
+    "replication": ["SPX"]
+  },
+  "validation": {
+    "earliest_evaluation_date": "2027-01-15",
+    "maximum_terminal_looks": 1,
+    "minimum_scored_sessions": 126,
+    "prospective_holdout_start": "2026-07-13",
+    "release_artifact": "experiments/releases/EXP-2026-001-HOLDOUT-RELEASE.json"
+  }
+}

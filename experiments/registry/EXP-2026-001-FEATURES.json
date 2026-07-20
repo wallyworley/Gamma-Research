@@ -1,0 +1,24 @@
+{
+  "experiment_id": "EXP-2026-001-FEATURES",
+  "status": "locked",
+  "registered_at": "2026-07-13T10:55:00-04:00",
+  "parent_experiment": "EXP-2026-001",
+  "question": "How are the pre-outcome control and signal features constructed?",
+  "hypothesis": "This supplement defines transformations only and contains no additional hypothesis.",
+  "universe": {"symbols": ["SPY", "SPX"], "minimum_history_sessions": 252},
+  "signal": {"gamma": "Black-Scholes from valid stored IV; T>0", "normalization": "total OI*100*spot", "empirical": "SPY stable sign-map with frozen naive fallback; SPX empirical unavailable until independently calibrated"},
+  "target": {"included_in_panel": false, "rule": "No forward or outcome field may be constructed"},
+  "controls": {
+    "surface": "Per-expiry ATM IV from nearest-log-moneyness strike and 25-delta skew=put IV-call IV; linear interpolation between expiries bracketing 30D, otherwise nearest within 10 days; eligible DTE 7-60 and IV>0; delta tolerance 0.10",
+    "liquidity": "Median (ask-bid)/mid over non-crossed non-negative NBBO with mid>0, plus valid quote fraction",
+    "volume": "sum(volume*100*spot), transformed log1p after join",
+    "price": "close returns over trailing 5/20 sessions; absolute-return HAR daily/5/22 using data through t",
+    "calendar": "weekday, nominal monthly OpEx calendar distance, business month-end",
+    "expiry": "OI fraction expiring within 7 and 30 calendar days"
+  },
+  "validation": {"as_of": "Every row contains only session-t or trailing data", "prospective_holdout_start": "2026-07-13", "holdout_scored": false},
+  "pass_fail": {"feature_gate": "Report per-column coverage; no model gate is evaluated during panel construction"},
+  "placebos": {"forbidden_column_tokens": ["target", "forward", "t_plus"]},
+  "exclusions": {"invalid_iv": "zero GEX and excluded from surface", "invalid_quote": "excluded from spread statistic", "missing_feature": "remain null; never outcome-conditioned imputation"},
+  "manifest_hash": "eede3bfab2f50a622d40a2de3d7854dde493defe3b7b6de4cc53fe302c1c3daa"
+}

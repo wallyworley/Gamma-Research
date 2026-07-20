@@ -1,0 +1,61 @@
+{
+  "controls": {
+    "calendar": ["day_of_week", "monthly_opex_distance", "month_end"],
+    "market_state": ["return_5d", "return_20d", "lagged_market_return"],
+    "options": ["atm_iv_30d", "put_call_skew_25d_30d", "log_option_volume_notional", "quoted_spread_summary"],
+    "volatility": ["har_daily", "har_weekly", "har_monthly"]
+  },
+  "exclusions": {
+    "adjusted_contracts": "exclude",
+    "crossed_or_invalid_quotes": "exclude from quote-derived controls",
+    "missing_primary_signal_or_target": "exclude row; never impute",
+    "outliers": "training-only winsorization at 0.5 and 99.5 percentiles; never delete based on outcome",
+    "unstable_sign_buckets": "use frozen naive fallback and report fallback gamma-OI share"
+  },
+  "experiment_id": "EXP-2026-001",
+  "hypothesis": {
+    "expected_sign": "negative",
+    "statement": "After observable volatility, options, liquidity, trend, and calendar controls, higher empirically signed normalized EOD GEX predicts lower next-day absolute return."
+  },
+  "manifest_hash": "83a4b36ed5d1abd7272197072b822dfce636b69937cfa8608db221b6d96ba683",
+  "pass_fail": {
+    "annual_fold_sign_consistency_min": 0.7,
+    "block_bootstrap_one_sided_p_max": 0.05,
+    "minimum_oos_squared_error_improvement": 0.01,
+    "placebo_percentile_min": 0.95,
+    "rule": "All four gates must pass for the primary SPY claim; SPX is a separately reported replication."
+  },
+  "placebos": {
+    "block_permutations": 100,
+    "lead_signal": "GEX at t+1 predicting target at t must not pass",
+    "timing": "No target or forward-return field may enter feature construction"
+  },
+  "question": "Does empirically signed normalized EOD GEX improve next-day absolute-return forecasts beyond observable competing explanations?",
+  "registered_at": "2026-07-13T00:00:00-04:00",
+  "signal": {
+    "as_of": "EOD chain at session t; oi_asof_date must be <= t",
+    "fallback": "Frozen long_call_short_put sign for unstable buckets and DTE > 60; report fallback share",
+    "formula": "net_gex_empirical_t / sum(open_interest_t * 100 * spot_t)",
+    "primary": "empirical_sign_normalized_gex",
+    "sensitivity_only": ["long_call_short_put", "otm_customer", "no_fallback", "dte_le_60"]
+  },
+  "status": "locked",
+  "target": {
+    "formula": "abs(log(close_t_plus_1 / close_t))",
+    "horizon": "next trading session",
+    "primary": "next_day_absolute_close_to_close_log_return",
+    "secondary": ["next_day_parkinson_range"]
+  },
+  "universe": {
+    "minimum_history_sessions": 252,
+    "primary": ["SPY"],
+    "replication": ["SPX"]
+  },
+  "validation": {
+    "development_period": ["2017-01-03", "2026-07-10"],
+    "historical_status": "development_only_because_outcomes_already_inspected",
+    "prospective_holdout_start": "2026-07-13",
+    "protocol": "Expanding annual walk-forward on development data; the prospective holdout remains unopened until a separately registered minimum sample and evaluation date are reached.",
+    "purge_embargo_sessions_for_secondary_overlapping_labels": 5
+  }
+}

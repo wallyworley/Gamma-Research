@@ -13,6 +13,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts")))
@@ -136,7 +137,7 @@ class TestBackfillRunner(unittest.TestCase):
             bf.run_backfill(["AAPL"], _A, _A, root, adapter=fake, workers=1)
             status = os.path.join(root, ".backfill_status.json")
             self.assertTrue(os.path.exists(status))
-            payload = json.loads(open(status).read())
+            payload = json.loads(Path(status).read_text())
             self.assertTrue(payload["done"])
             self.assertEqual(payload["written"], 1)
 

@@ -1,6 +1,8 @@
 # Data payloads (never commit vendor data)
 data/raw/
 data/normalized/
+data/analysis/
+data/calibration/
 *.parquet
 *.csv
 

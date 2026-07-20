@@ -58,6 +58,30 @@ def contract_gex(df: pd.DataFrame, *, config: EngineConfig | None = None,
     return pd.Series(values, index=df.index, name="gex")
 
 
+def contract_gex_recomputed(df: pd.DataFrame, *, config: EngineConfig | None = None,
+                            spot=None) -> pd.Series:
+    """Signed GEX using BS gamma recomputed only from valid stored IV.
+
+    Null/non-positive IV or non-positive remaining time produces zero gamma. A
+    vendor solver error therefore cannot survive as an extreme GEX contribution
+    merely because the vendor gamma field remained populated.
+    """
+    cfg = resolve_config(config)
+    signs = dealer_signs(df, cfg.metrics.dealer_sign_convention)
+    oi = df["open_interest"].astype("float64").fillna(0.0).to_numpy()
+    sigma = df["iv"].astype("float64").fillna(0.0).to_numpy()
+    strike = df["strike"].astype("float64").to_numpy()
+    T = years_to_expiry(df, cfg.pricer.day_count)
+    if spot is None:
+        spot = df["underlying_price"].astype("float64").to_numpy()
+    spot = np.asarray(spot, dtype=float)
+    gamma = bs_gamma(spot, strike, T, sigma,
+                     cfg.pricer.risk_free_rate, cfg.pricer.dividend_yield)
+    factor = dollar_factor(spot, cfg.metrics.gex_convention)
+    return pd.Series(signs * gamma * oi * CONTRACT_SIZE * factor,
+                     index=df.index, name="gex_recomputed")
+
+
 def net_gex(df: pd.DataFrame, *, config: EngineConfig | None = None, spot=None) -> float:
     """Aggregate signed GEX over the whole chain (dealer-signed)."""
     require_single_snapshot(df)
@@ -177,6 +201,7 @@ def gamma_snapshot(df: pd.DataFrame, *, config: EngineConfig | None = None) -> G
 
 __all__ = [
     "contract_gex",
+    "contract_gex_recomputed",
     "net_gex",
     "gex_by_strike",
     "regime",

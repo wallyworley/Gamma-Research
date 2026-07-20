@@ -3,13 +3,35 @@
 Quick-start context for picking this repo back up in a new chat. Open `~/dev/gamma-research`
 and read this file first.
 
-Last updated: 2026-07-07 (quant-review fix batches A-D live; ThetaData validated as the
-history source; Phase 1 backfill 2016->present RUNNING on the VPS; three backup layers).
+Last updated: 2026-07-20. **The project is retired.** The corrected-gamma, strong-control, expanding
+walk-forward EXP-2026-001 development scorecard is complete. SPY empirical GEX
+slightly worsened OOS squared error (-0.0045%), bootstrap p=0.5385, negative sign
+in 62.5% of annual folds, placebo percentile 79%; it passed 0/4 locked gates.
+SPX naive-sign sensitivity also passed 0/4. **Day-30 decision: stop EOD OI-GEX
+level as standalone alpha.** The prospective holdout was not scored and is sealed
+until at least 126 sessions and 2027-01-15. See
+`docs/day30_research_decision_2026-07-19.md`.
 
-## LIVE: paid data + nightly VPS universe capture (start here)
+## RETIRED: operational state (start here)
 
-The engine now collects real option chains for the **full optionable US equity universe**
-every weekday, unattended, on the always-on OVH VPS.
+- `gamma-snapshot.timer` and `gamma-drive-backup.timer` are disabled on the VPS.
+- `/opt/gamma-research/data` was removed on 2026-07-20 only after a complete Google Drive
+  snapshot matched the local archive by exact byte size and MD5.
+- The repository, VPS credentials, systemd definitions, retirement metadata, and off-site
+  archives remain. The former corpus is not locally queryable on the VPS without a restore.
+- Pushes to `main` no longer deploy automatically. The retained workflow requires an explicit
+  manual `reactivate=true` confirmation before it can touch the VPS.
+- Do not restart collection, score the sealed holdout, purchase more options data, or revive
+  EXP-2026-001 through threshold/subperiod changes. Re-entry requires a distinct preregistration
+  and explicit approval.
+
+See `docs/project_retirement_2026-07-20.md` for the verified snapshot and recovery boundary.
+
+## HISTORICAL: paid data + nightly VPS universe capture
+
+The engine previously collected real option chains for the **full optionable US equity universe**
+every weekday, unattended, on the OVH VPS. The details below are retained as historical
+architecture documentation and do not describe an active collector.
 
 - **Provider:** Massive (rebranded Polygon.io; API host still `api.polygon.io`), **Options
   Starter ~$29/mo**. Key in `.env` (`MASSIVE_API_KEY`; also on the VPS at
@@ -114,14 +136,89 @@ every weekday, unattended, on the always-on OVH VPS.
   rule: buy only if (a) a GEX signal shows real scorecard value AND (b) the F11
   convention sweep flags sign-convention sensitivity; then start with a 1-2 year SPX
   slice. That history stays purchasable retroactively, so deferral costs nothing.
-- **Next:** when Phase 1 completes, run the FIRST REAL EXPERIMENT:
-  `eval.volatility.vol_forecast_scorecard` on normalized SPX/SPY GEX
-  (`io.read_symbol_history` + `metrics.flow.gex_normalized` + bars from
-  `backtest.bars.fetch_daily_bars`), with the F11 `eval.sensitivity.convention_sweep`;
-  then the empirical dealer-sign calibration and the cross-sectional universe backfill
-  (phase 2). Also still open: a real failure alert (`OnFailure=` mailer/webhook vs the
-  `.failures.log` marker). Suite is 288 tests; keep BOTH CI legs green (the stdlib leg
-  has no data stack - guard heavy imports in tests).
+- **FIRST REAL EXPERIMENT DONE (2026-07-08): `scripts/vol_forecast_experiment.py`** -
+  `vol_forecast_scorecard` on normalized SPX/SPY GEX, both dealer-sign conventions
+  (the F11 sweep adapted to the vol harness: the signal is rebuilt per convention from
+  the series' own `net_gex` / `net_gex_otm` columns; `otm_customer` is a per-contract
+  re-signing, not a global flip). Inputs: the VPS `gex_series_*.json` pulled to
+  `data/analysis/` (gitignored), bars from **yfinance** (`data/analysis/yf_*_daily.csv`).
+  Why yfinance: Massive bars are 2-year-capped on Options Starter and `I:SPX` aggs are
+  403; ThetaData index/stock history needs subscriptions we don't have (PERMISSION_DENIED
+  verified); EODHD free = 1y; Stooq is behind an anti-bot wall. Validated before use:
+  SPY yf vs Massive overlap agrees to ~1e-5 on all OHLC, SPX yf close vs the official
+  Cboe history CSV (2 of 2,663 sessions > 5bp), both vs the series' ThetaData
+  vendor-close spots (median |rel| ~2e-8). Results (~2,388 sessions 2017-01..2026-07;
+  HAR baseline R2 ~0.55 range / ~0.27 abs_return; strict gate = incremental adj-R2 > 0
+  AND bootstrap frac<=0 no more than 0.05; full JSON in
+  `data/analysis/vol_forecast_results_{SPX,SPY}.json`, also easy to re-run):
+  * **SPX: clean null.** Every target, both conventions: inc_adjR2 ~ -0.0002, |t| <= 0.5,
+    boot frac<=0 ~ 0.85. No F11 flip. A trustworthy negative, and not a degenerate
+    signal (SPX gex_norm is two-sided, 1540 pos / 848 neg sessions).
+  * **SPY: small real effect, but convention-sensitive.** Under `long_call_short_put`
+    the coefficient is NEGATIVE on all targets (long gamma suppresses next-day vol, the
+    theorized sign): abs_return passes hard (t=-4.4, frac 0.000, inc_adjR2 +0.0057),
+    range passes (t=-2.5, frac 0.043), parkinson just misses (frac 0.058). Robustness:
+    strongest PRE-COVID (2017-19: abs_return t=-5.5, inc_adjR2 +0.031), holds through
+    2020 (t=-2.4), decays 2022-26 (range t=-1.2 n.s.; abs_return still t=-2.8) -
+    consistent with the item-7 0DTE/EOD-OI blind spot, NOT a COVID artifact. Value
+    concentrates on POSITIVE-GEX days (subsample inc_adjR2 +0.009 vs ~0.000 negative).
+    BUT under `otm_customer` every target fails (t ~ -1.9, frac 0.10-0.14), so **F11
+    FLIPS on range and abs_return**: per review item 5 the SPY positive currently rides
+    on the unobservable dealer-sign assumption - motivation, not yet a result.
+  * Magnitudes are honest-small everywhere: even the best whole-sample cell adds ~0.6%
+    R2 to a 27% baseline. Statistically detectable, economically modest.
+- **EMPIRICAL DEALER-SIGN CALIBRATION DONE (2026-07-08, branch `calibration-dealer-sign`):**
+  `src/calibration/` (classify/bucket/signmap pure + stdlib-tested; pull/aggregate/
+  gex_rebuild data-stack) + `scripts/calibrate_dealer_sign.py` (pull -> map -> scorecard,
+  resumable). Replaces the assumed dealer sign with a measurement: ThetaData
+  `option_history_trade_quote` (Standard IS entitled; `expiration='*'` + `max_dte=60`
+  returns a whole session in one call) -> quote rule vs prevailing NBBO (>=ask buy,
+  <=bid sell, inside by proximity; exact-mid + invalid NBBO dropped) -> signed customer
+  flow per type x moneyness(5, +/-15%) x DTE(3, <=60d) bucket -> dealer sign = MINUS
+  mean-flow sign, stable only if the 2017-21 and 2022-26 halves agree. Sampled 245 SPY
+  sessions (2/month 2017-01..2026-06 + top-20 |gex_norm|), 130.5M trades, 99.4% valid
+  NBBO, 46.4% buy / 45.2% sell / 7.8% exact-mid dropped. Outputs (gitignored):
+  `data/calibration/{sign_map,empirical_series,scorecard}_SPY.json` + per-session
+  trade parquets (~460MB). Findings:
+  * **Map: 21/30 buckets stable.** Headline structure: ATM (0.99-1.01) calls AND puts
+    at 8-60d DTE = dealers SHORT (customers net buy both, put t=+4.6) - the naive
+    convention has ATM calls backwards; short-dated OTM puts (<=0.95, 0-7d) = dealer
+    short (t=+3.5); longer-dated OTM puts = dealer long (customers net SELL puts at
+    8-60d, t=-3.0 at 31-60d - the put-wing "customers buy protection" story only holds
+    0-7d). ATM 0DTE calls flipped sign between halves (unstable) - 0DTE era change.
+  * **Neither convention matches the measurement:** gamma*OI-weighted agreement over
+    stable cells = **50.9% long_call_short_put, 33.4% otm_customer** (a coin flip and
+    worse-than-coin-flip). Empirical rebuild fallback share (unstable buckets + DTE>60):
+    mean 38.6% of gamma*OI.
+  * **Diagnostics:** OI reconciliation r=+0.19 (20,040 contract-days, 12 sessions;
+    positive but weak, as expected: open/close unobservable, OCC vs per-exchange
+    coverage). Condition robustness: 15/21 stable buckets keep their sign when
+    multi-leg/spread/floor prints (OPRA 35-38, 129, 130-139) are excluded; the 6 that
+    move are mostly the longer-dated OTM-put cells, i.e. the "customers sell put wings"
+    reading leans on multi-leg prints whose leg-level NBBO classification is weakest.
+    Gamma-weighted flow map agrees with the contract map on 18/21.
+  * **Three-arm scorecard (same bars/gate as the experiment): the SPY vol result does
+    NOT survive.** Whole-sample: empirical arm keeps only abs_return (inc_adjR2
+    +0.0013, t=-2.31, boot frac 0.017 - a quarter of the naive arm's +0.0057/t=-4.44)
+    and fails range (t=-0.49) and parkinson (t=-0.38), both of which the naive arm
+    passed/near-passed. Out-of-sample splits: early-half map scored on 2022-26 bars
+    FAILS all targets (abs_return t=-1.30, boot 0.47; range coef even flips positive),
+    late map on 2017-21 bars FAILS all targets (t ~ -1.5..-1.7, boot 0.15-0.19).
+    Conclusion: the naive-convention SPY positive rode substantially on sign choices
+    the measured customer flow does not support; honest status = weak/absent under
+    measured signs. Caveats: quote-rule error (esp. multi-leg legs), bucket-level (not
+    contract-level) inventory proxy, 245-session sampling density, single name.
+- **Historical next-step list (superseded by retirement):** (1) the Cboe Open-Close purchase decision: the F11 flag + the calibration's
+  ~51% agreement argue the flow-sign question is real, but the empirical arm's failure
+  also says the vol channel may just be weak - if pursued, buy the SPY (equity)
+  open-close slice, not SPX, and re-test before spending more. (2) `gex_volume_proxy`
+  series (needs per-session chains, `io.read_symbol_history` on the store) as the
+  candidate fix for the post-2021 decay. (3) Explain the SPX null vs SPY effect
+  (institutional SPX book structure? notional denominator? greeks era?). (4) Phase 2
+  cross-sectional universe backfill. Also still open: a real failure alert
+  (`OnFailure=` mailer/webhook vs the `.failures.log` marker). Suite is 321 tests; keep
+  BOTH CI legs green (the stdlib leg has no data stack - guard heavy imports in tests;
+  the calibration pure logic imports stdlib-only by design).
 
 ## What this repo is
 

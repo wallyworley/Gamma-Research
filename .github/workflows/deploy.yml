@@ -1,11 +1,16 @@
-name: Deploy to VPS
+name: Deploy to VPS (retired; explicit reactivation only)
 
-# Auto-deploy on every push to main; also a manual trigger from the Actions tab
-# (re-run after an interrupted deploy, or to reset the VPS to match main).
+# The project was retired on 2026-07-20. There is deliberately no push trigger: updating main must
+# not recreate /opt/gamma-research/data or re-enable collection. A future, separately approved
+# re-entry may run this workflow only by manually confirming the input below.
 on:
-  push:
-    branches: [main]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      reactivate:
+        description: "Explicit approval to restore VPS deployment and enable collection"
+        required: true
+        type: boolean
+        default: false
 
 # One deploy at a time: a later push waits rather than racing an older rsync.
 concurrency:
@@ -17,6 +22,7 @@ jobs:
   # requirements.lock.txt). ci.yml only tests 3.11/3.13 with the loose requirements, so
   # without this a red suite -- or a 3.12/lock-specific breakage -- would still deploy.
   test:
+    if: ${{ inputs.reactivate == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -34,6 +40,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   deploy:
+    if: ${{ inputs.reactivate == true }}
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -1,6 +1,13 @@
 # Store backups (Mac pull + Google Drive push)
 
-The VPS store `/opt/gamma-research/data` is the project's primary asset. The nightly
+> **Retired state (2026-07-20):** the jobs described below are disabled and retained only as
+> recovery/re-entry documentation. `/opt/gamma-research/data` no longer exists. Before deletion,
+> the complete quiescent store was uploaded to Google Drive as
+> `gamma-research/full-snapshots/gamma-research-data-20260720T001806Z.tar.gz`; its local and remote
+> size (`7,618,440,841` bytes) and MD5 (`915298bad7661e9656330a01e11c5ff8`) matched. Do not enable
+> either timer without an approved new preregistration.
+
+Historically, the VPS store `/opt/gamma-research/data` was the project's primary asset. The nightly
 Massive/Polygon captures are snapshot-only (not re-obtainable after the fact); the
 ThetaData-backfilled history is re-buyable in principle, but only down to per-symbol
 greeks floors and at re-download cost. One disk failure without a backup resets weeks
@@ -11,6 +18,9 @@ of accumulation (quant review Tier 1, item 1), so the store lives in THREE place
 | Primary | VPS `/opt/gamma-research/data` | capture + backfill write here | nightly / ongoing |
 | Local mirror | Mac `~/Backups/gamma-research` (+ VPS `.env`) | `pull_backup.sh` (launchd) | 20:30 local |
 | Off-site | Google Drive `gamma-research/store/` | `gamma-drive-backup.sh` (VPS systemd timer) | 23:45 UTC |
+
+The table above describes the former active topology. The deletion-grade retirement snapshot is
+stored separately under `gamma-research/full-snapshots/`.
 
 ## Layer 3: Google Drive push (`gamma-drive-backup.sh`)
 
@@ -113,6 +123,22 @@ ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes ubuntu@<NEW_VPS> \
 The store is immutable/append-only (one partition per symbol per session), so a
 restored mirror is a byte-for-byte valid store: `read_canonical` / `read_symbol_history`
 work against it unchanged.
+
+### Restore from the retirement snapshot
+
+On a host with the existing `gdrive:` rclone remote configured:
+
+```sh
+rclone copyto \
+  gdrive:gamma-research/full-snapshots/gamma-research-data-20260720T001806Z.tar.gz \
+  /tmp/gamma-research-data-20260720T001806Z.tar.gz
+echo '915298bad7661e9656330a01e11c5ff8  /tmp/gamma-research-data-20260720T001806Z.tar.gz' \
+  | md5sum -c -
+sudo tar -xzf /tmp/gamma-research-data-20260720T001806Z.tar.gz -C /opt/gamma-research
+```
+
+Restoring data does not authorize re-enabling collection. Verify ownership and the restored store,
+then obtain explicit re-entry approval before starting either timer.
 
 ## Uninstall
 
